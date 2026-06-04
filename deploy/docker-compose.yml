@@ -1,0 +1,12 @@
+services:
+  lifeops-api:
+    build:
+      context: ../apps/api
+    image: lifeops/api:local
+    container_name: lifeops-api
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      LIFEOPS_ADDR: ":8080"
+      LIFEOPS_WEBHOOK_TOKEN: "${LIFEOPS_WEBHOOK_TOKEN:-dev-token}"

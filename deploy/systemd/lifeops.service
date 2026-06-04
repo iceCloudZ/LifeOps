@@ -1,0 +1,21 @@
+[Unit]
+Description=LifeOps API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lifeops
+Group=lifeops
+WorkingDirectory=/opt/lifeops
+EnvironmentFile=/etc/lifeops/lifeops.env
+ExecStart=/opt/lifeops/lifeops-api
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
