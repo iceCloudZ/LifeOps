@@ -3,7 +3,7 @@
 FROM golang:1.26-alpine AS build
 WORKDIR /src
 
-COPY go.mod ./
+COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
@@ -14,5 +14,6 @@ RUN adduser -D -H -s /sbin/nologin lifeops
 USER lifeops
 EXPOSE 8080
 ENV LIFEOPS_ADDR=:8080
+ENV LIFEOPS_DB_PATH=/data/lifeops.db
 ENTRYPOINT ["/lifeops-api"]
 COPY --from=build /out/lifeops-api /lifeops-api
