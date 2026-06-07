@@ -5,12 +5,24 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
+func testServer(t *testing.T) *Server {
+	t.Helper()
+	dir := t.TempDir()
+	store, err := NewStore(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	t.Cleanup(func() { store.Close() })
+	return NewServer("dev-token", store)
+}
+
 func TestWebhookInboxAcceptsMessage(t *testing.T) {
-	server := NewServer("dev-token")
+	server := testServer(t)
 
 	body := bytes.NewBufferString(`{
 		"source": "wechat",
@@ -50,7 +62,7 @@ func TestWebhookInboxAcceptsMessage(t *testing.T) {
 }
 
 func TestWebhookRejectsInvalidToken(t *testing.T) {
-	server := NewServer("dev-token")
+	server := testServer(t)
 
 	body := bytes.NewBufferString(`{"source":"wechat","sender":"partner","content":"test"}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/inbox/webhook", body)
@@ -66,7 +78,7 @@ func TestWebhookRejectsInvalidToken(t *testing.T) {
 }
 
 func TestWebhookRejectsMissingToken(t *testing.T) {
-	server := NewServer("dev-token")
+	server := testServer(t)
 
 	body := bytes.NewBufferString(`{"source":"wechat","sender":"partner","content":"test"}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/inbox/webhook", body)
@@ -81,7 +93,7 @@ func TestWebhookRejectsMissingToken(t *testing.T) {
 }
 
 func TestWebhookRejectsNonPost(t *testing.T) {
-	server := NewServer("dev-token")
+	server := testServer(t)
 
 	request := httptest.NewRequest(http.MethodGet, "/api/inbox/webhook", nil)
 	request.Header.Set("X-LifeOps-Token", "dev-token")
@@ -95,7 +107,7 @@ func TestWebhookRejectsNonPost(t *testing.T) {
 }
 
 func TestWebhookRejectsInvalidJSON(t *testing.T) {
-	server := NewServer("dev-token")
+	server := testServer(t)
 
 	body := bytes.NewBufferString(`not json`)
 	request := httptest.NewRequest(http.MethodPost, "/api/inbox/webhook", body)
@@ -119,7 +131,7 @@ func TestWebhookRejectsInvalidJSON(t *testing.T) {
 }
 
 func TestWebhookRejectsMissingSource(t *testing.T) {
-	server := NewServer("dev-token")
+	server := testServer(t)
 
 	body := bytes.NewBufferString(`{"sender":"partner","content":"test"}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/inbox/webhook", body)
@@ -143,7 +155,7 @@ func TestWebhookRejectsMissingSource(t *testing.T) {
 }
 
 func TestWebhookRejectsEmptyContent(t *testing.T) {
-	server := NewServer("dev-token")
+	server := testServer(t)
 
 	body := bytes.NewBufferString(`{"source":"wechat","sender":"partner","content":"   "}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/inbox/webhook", body)
@@ -167,7 +179,7 @@ func TestWebhookRejectsEmptyContent(t *testing.T) {
 }
 
 func TestWebhookAcceptsMessageWithoutSender(t *testing.T) {
-	server := NewServer("dev-token")
+	server := testServer(t)
 
 	body := bytes.NewBufferString(`{"source":"telegram","content":"buy milk"}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/inbox/webhook", body)
@@ -183,7 +195,7 @@ func TestWebhookAcceptsMessageWithoutSender(t *testing.T) {
 }
 
 func TestWebhookErrorResponseIsJSON(t *testing.T) {
-	server := NewServer("dev-token")
+	server := testServer(t)
 
 	tests := []struct {
 		name        string

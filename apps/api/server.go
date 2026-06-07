@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -33,28 +32,38 @@ type errorResponse struct {
 type Server struct {
 	token string
 	mux   *http.ServeMux
-	mu    sync.Mutex
-	items []InboxItem
+	store *Store
+}
+
+func NewServer(token string, store *Store) *Server {
+	server := &Server{
+		token: token,
+		mux:   http.NewServeMux(),
+		store: store,
+	}
+	server.mux.HandleFunc("/api/inbox/webhook", server.handleWebhookInbox)
+	server.mux.HandleFunc("/api/drafts", server.handleListDrafts)
+	server.mux.HandleFunc("/api/drafts/", server.handleDraftRoutes)
+	return server
+}
+
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.mux.ServeHTTP(w, r)
+}
+
+func (s *Server) handleDraftRoutes(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/api/drafts/")
+	if id == "" {
+		s.handleListDrafts(w, r)
+		return
+	}
+	s.handleGetDraft(w, r, id)
 }
 
 func writeJSONError(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(errorResponse{Error: code, Message: message})
-}
-
-func NewServer(token string) *Server {
-	server := &Server{
-		token: token,
-		mux:   http.NewServeMux(),
-		items: []InboxItem{},
-	}
-	server.mux.HandleFunc("/api/inbox/webhook", server.handleWebhookInbox)
-	return server
-}
-
-func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	s.mux.ServeHTTP(w, r)
 }
 
 func (s *Server) handleWebhookInbox(w http.ResponseWriter, r *http.Request) {
@@ -91,9 +100,10 @@ func (s *Server) handleWebhookInbox(w http.ResponseWriter, r *http.Request) {
 		CreatedAt: time.Now().UTC(),
 	}
 
-	s.mu.Lock()
-	s.items = append(s.items, item)
-	s.mu.Unlock()
+	if err := s.store.CreateInboxItem(&item); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "internal_error", "failed to store item")
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)

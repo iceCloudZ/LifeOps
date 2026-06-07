@@ -15,9 +15,19 @@ func main() {
 	if addr == "" {
 		addr = ":8080"
 	}
+	dbPath := os.Getenv("LIFEOPS_DB_PATH")
+	if dbPath == "" {
+		dbPath = "lifeops.db"
+	}
 
-	log.Printf("LifeOps Go spike listening on %s", addr)
-	if err := http.ListenAndServe(addr, NewServer(token)); err != nil {
+	store, err := NewStore(dbPath)
+	if err != nil {
+		log.Fatalf("failed to open database: %v", err)
+	}
+	defer store.Close()
+
+	log.Printf("LifeOps API listening on %s (db: %s)", addr, dbPath)
+	if err := http.ListenAndServe(addr, NewServer(token, store)); err != nil {
 		log.Fatal(err)
 	}
 }
