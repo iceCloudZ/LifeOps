@@ -56,12 +56,19 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDraftRoutes(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimPrefix(r.URL.Path, "/api/drafts/")
-	if id == "" {
+	sub := strings.TrimPrefix(r.URL.Path, "/api/drafts/")
+	if sub == "" {
 		s.handleListDrafts(w, r)
 		return
 	}
-	s.handleGetDraft(w, r, id)
+
+	if strings.HasSuffix(sub, "/review") {
+		id := strings.TrimSuffix(sub, "/review")
+		s.handleReviewDraft(w, r, id)
+		return
+	}
+
+	s.handleGetDraft(w, r, sub)
 }
 
 func writeJSONError(w http.ResponseWriter, status int, code, message string) {
