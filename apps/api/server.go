@@ -44,6 +44,10 @@ func NewServer(token string, store *Store) *Server {
 	server.mux.HandleFunc("/api/inbox/webhook", server.handleWebhookInbox)
 	server.mux.HandleFunc("/api/drafts", server.handleListDrafts)
 	server.mux.HandleFunc("/api/drafts/", server.handleDraftRoutes)
+	server.mux.HandleFunc("/api/tasks/", server.handleEntityRoutes)
+	server.mux.HandleFunc("/api/events/", server.handleEntityRoutes)
+	server.mux.HandleFunc("/api/shopping-items/", server.handleEntityRoutes)
+	server.mux.HandleFunc("/api/notes/", server.handleEntityRoutes)
 	return server
 }
 

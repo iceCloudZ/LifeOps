@@ -332,3 +332,191 @@ func (s *Store) CreateNote(note *FamilyNote) error {
 	)
 	return err
 }
+
+// Task CRUD
+
+func (s *Store) ListTasks() ([]FamilyTask, error) {
+	rows, err := s.db.Query(`SELECT id, title, description, assignee_member_id, due_at, status, source_inbox_item_id, created_at, updated_at FROM family_tasks ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var tasks []FamilyTask
+	for rows.Next() {
+		var t FamilyTask
+		if err := rows.Scan(&t.ID, &t.Title, &t.Description, &t.AssigneeMemberID, &t.DueAt, &t.Status, &t.SourceInboxItemID, &t.CreatedAt, &t.UpdatedAt); err != nil {
+			return nil, err
+		}
+		tasks = append(tasks, t)
+	}
+	return tasks, rows.Err()
+}
+
+func (s *Store) GetTask(id string) (*FamilyTask, error) {
+	var t FamilyTask
+	err := s.db.QueryRow(`SELECT id, title, description, assignee_member_id, due_at, status, source_inbox_item_id, created_at, updated_at FROM family_tasks WHERE id = ?`, id).
+		Scan(&t.ID, &t.Title, &t.Description, &t.AssigneeMemberID, &t.DueAt, &t.Status, &t.SourceInboxItemID, &t.CreatedAt, &t.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+func (s *Store) UpdateTask(id, title, description string, dueAt *string, status, updatedAt string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.Exec(`UPDATE family_tasks SET title=?, description=?, due_at=?, status=?, updated_at=? WHERE id=?`,
+		title, description, dueAt, status, updatedAt, id)
+	return err
+}
+
+func (s *Store) DeleteTask(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.Exec(`DELETE FROM family_tasks WHERE id = ?`, id)
+	return err
+}
+
+// Event CRUD
+
+func (s *Store) ListEvents() ([]FamilyEvent, error) {
+	rows, err := s.db.Query(`SELECT id, title, description, starts_at, ends_at, participant_members, source_inbox_item_id, created_at, updated_at FROM family_events ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var events []FamilyEvent
+	for rows.Next() {
+		var e FamilyEvent
+		if err := rows.Scan(&e.ID, &e.Title, &e.Description, &e.StartsAt, &e.EndsAt, &e.ParticipantMembers, &e.SourceInboxItemID, &e.CreatedAt, &e.UpdatedAt); err != nil {
+			return nil, err
+		}
+		events = append(events, e)
+	}
+	return events, rows.Err()
+}
+
+func (s *Store) GetEvent(id string) (*FamilyEvent, error) {
+	var e FamilyEvent
+	err := s.db.QueryRow(`SELECT id, title, description, starts_at, ends_at, participant_members, source_inbox_item_id, created_at, updated_at FROM family_events WHERE id = ?`, id).
+		Scan(&e.ID, &e.Title, &e.Description, &e.StartsAt, &e.EndsAt, &e.ParticipantMembers, &e.SourceInboxItemID, &e.CreatedAt, &e.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &e, nil
+}
+
+func (s *Store) UpdateEvent(id, title, description string, startsAt, endsAt *string, updatedAt string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.Exec(`UPDATE family_events SET title=?, description=?, starts_at=?, ends_at=?, updated_at=? WHERE id=?`,
+		title, description, startsAt, endsAt, updatedAt, id)
+	return err
+}
+
+func (s *Store) DeleteEvent(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.Exec(`DELETE FROM family_events WHERE id = ?`, id)
+	return err
+}
+
+// ShoppingItem CRUD
+
+func (s *Store) ListShoppingItems() ([]ShoppingItem, error) {
+	rows, err := s.db.Query(`SELECT id, name, quantity, status, source_inbox_item_id, created_at, updated_at FROM shopping_items ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ShoppingItem
+	for rows.Next() {
+		var i ShoppingItem
+		if err := rows.Scan(&i.ID, &i.Name, &i.Quantity, &i.Status, &i.SourceInboxItemID, &i.CreatedAt, &i.UpdatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	return items, rows.Err()
+}
+
+func (s *Store) GetShoppingItem(id string) (*ShoppingItem, error) {
+	var i ShoppingItem
+	err := s.db.QueryRow(`SELECT id, name, quantity, status, source_inbox_item_id, created_at, updated_at FROM shopping_items WHERE id = ?`, id).
+		Scan(&i.ID, &i.Name, &i.Quantity, &i.Status, &i.SourceInboxItemID, &i.CreatedAt, &i.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &i, nil
+}
+
+func (s *Store) UpdateShoppingItem(id, name, quantity, status, updatedAt string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.Exec(`UPDATE shopping_items SET name=?, quantity=?, status=?, updated_at=? WHERE id=?`,
+		name, quantity, status, updatedAt, id)
+	return err
+}
+
+func (s *Store) DeleteShoppingItem(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.Exec(`DELETE FROM shopping_items WHERE id = ?`, id)
+	return err
+}
+
+// Note CRUD
+
+func (s *Store) ListNotes() ([]FamilyNote, error) {
+	rows, err := s.db.Query(`SELECT id, title, content, topic, source_inbox_item_id, created_at, updated_at FROM family_notes ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var notes []FamilyNote
+	for rows.Next() {
+		var n FamilyNote
+		if err := rows.Scan(&n.ID, &n.Title, &n.Content, &n.Topic, &n.SourceInboxItemID, &n.CreatedAt, &n.UpdatedAt); err != nil {
+			return nil, err
+		}
+		notes = append(notes, n)
+	}
+	return notes, rows.Err()
+}
+
+func (s *Store) GetNote(id string) (*FamilyNote, error) {
+	var n FamilyNote
+	err := s.db.QueryRow(`SELECT id, title, content, topic, source_inbox_item_id, created_at, updated_at FROM family_notes WHERE id = ?`, id).
+		Scan(&n.ID, &n.Title, &n.Content, &n.Topic, &n.SourceInboxItemID, &n.CreatedAt, &n.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &n, nil
+}
+
+func (s *Store) UpdateNote(id, title, content, topic, updatedAt string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.Exec(`UPDATE family_notes SET title=?, content=?, topic=?, updated_at=? WHERE id=?`,
+		title, content, topic, updatedAt, id)
+	return err
+}
+
+func (s *Store) DeleteNote(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.Exec(`DELETE FROM family_notes WHERE id = ?`, id)
+	return err
+}
