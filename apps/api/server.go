@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -24,11 +25,22 @@ type WebhookInboxRequest struct {
 	Content string `json:"content"`
 }
 
+type errorResponse struct {
+	Error   string `json:"error"`
+	Message string `json:"message"`
+}
+
 type Server struct {
 	token string
 	mux   *http.ServeMux
 	mu    sync.Mutex
 	items []InboxItem
+}
+
+func writeJSONError(w http.ResponseWriter, status int, code, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(errorResponse{Error: code, Message: message})
 }
 
 func NewServer(token string) *Server {
@@ -57,7 +69,16 @@ func (s *Server) handleWebhookInbox(w http.ResponseWriter, r *http.Request) {
 
 	var request WebhookInboxRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "invalid_request", "invalid json")
+		return
+	}
+
+	if strings.TrimSpace(request.Source) == "" {
+		writeJSONError(w, http.StatusBadRequest, "invalid_request", "source is required")
+		return
+	}
+	if strings.TrimSpace(request.Content) == "" {
+		writeJSONError(w, http.StatusBadRequest, "empty_content", "content is required")
 		return
 	}
 
