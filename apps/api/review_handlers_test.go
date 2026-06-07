@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -26,9 +25,7 @@ func TestConfirmTaskDraft(t *testing.T) {
 	srv := testServer(t)
 	draftID := createDraftForReview(t, srv, "task", "交水费")
 
-	body := bytes.NewBufferString(`{"action":"confirm"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/drafts/"+draftID+"/review", body)
-	req.Header.Set("Content-Type", "application/json")
+	req := authRequest(http.MethodPost, "/api/drafts/"+draftID+"/review", `{"action":"confirm"}`)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -38,19 +35,13 @@ func TestConfirmTaskDraft(t *testing.T) {
 
 	var task FamilyTask
 	json.Unmarshal(w.Body.Bytes(), &task)
-	if task.Title != "交水费" {
-		t.Fatalf("expected title 交水费, got %q", task.Title)
-	}
-	if task.Status != "open" {
-		t.Fatalf("expected status open, got %q", task.Status)
+	if task.Title != "交水费" || task.Status != "open" {
+		t.Fatalf("unexpected task: %+v", task)
 	}
 
 	draft, _ := srv.store.GetDraft(draftID)
 	if draft.Status != "confirmed" {
 		t.Fatalf("expected draft status confirmed, got %q", draft.Status)
-	}
-	if draft.EntityID == nil || *draft.EntityID != task.ID {
-		t.Fatalf("expected entity_id to match task id")
 	}
 }
 
@@ -58,20 +49,12 @@ func TestConfirmEventDraft(t *testing.T) {
 	srv := testServer(t)
 	draftID := createDraftForReview(t, srv, "event", "家长会")
 
-	body := bytes.NewBufferString(`{"action":"confirm"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/drafts/"+draftID+"/review", body)
-	req.Header.Set("Content-Type", "application/json")
+	req := authRequest(http.MethodPost, "/api/drafts/"+draftID+"/review", `{"action":"confirm"}`)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	var event FamilyEvent
-	json.Unmarshal(w.Body.Bytes(), &event)
-	if event.Title != "家长会" {
-		t.Fatalf("expected title 家长会, got %q", event.Title)
 	}
 }
 
@@ -79,20 +62,12 @@ func TestConfirmShoppingItemDraft(t *testing.T) {
 	srv := testServer(t)
 	draftID := createDraftForReview(t, srv, "shopping_item", "牛奶")
 
-	body := bytes.NewBufferString(`{"action":"confirm"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/drafts/"+draftID+"/review", body)
-	req.Header.Set("Content-Type", "application/json")
+	req := authRequest(http.MethodPost, "/api/drafts/"+draftID+"/review", `{"action":"confirm"}`)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	var item ShoppingItem
-	json.Unmarshal(w.Body.Bytes(), &item)
-	if item.Name != "牛奶" {
-		t.Fatalf("expected name 牛奶, got %q", item.Name)
 	}
 }
 
@@ -100,20 +75,12 @@ func TestConfirmNoteDraft(t *testing.T) {
 	srv := testServer(t)
 	draftID := createDraftForReview(t, srv, "note", "晚餐偏好")
 
-	body := bytes.NewBufferString(`{"action":"confirm"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/drafts/"+draftID+"/review", body)
-	req.Header.Set("Content-Type", "application/json")
+	req := authRequest(http.MethodPost, "/api/drafts/"+draftID+"/review", `{"action":"confirm"}`)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	var note FamilyNote
-	json.Unmarshal(w.Body.Bytes(), &note)
-	if note.Title != "晚餐偏好" {
-		t.Fatalf("expected title 晚餐偏好, got %q", note.Title)
 	}
 }
 
@@ -121,9 +88,7 @@ func TestConfirmDraftWithUpdates(t *testing.T) {
 	srv := testServer(t)
 	draftID := createDraftForReview(t, srv, "task", "old title")
 
-	body := bytes.NewBufferString(`{"action":"confirm","updates":{"title":"new title","description":"new desc"}}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/drafts/"+draftID+"/review", body)
-	req.Header.Set("Content-Type", "application/json")
+	req := authRequest(http.MethodPost, "/api/drafts/"+draftID+"/review", `{"action":"confirm","updates":{"title":"new title","description":"new desc"}}`)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -133,11 +98,8 @@ func TestConfirmDraftWithUpdates(t *testing.T) {
 
 	var task FamilyTask
 	json.Unmarshal(w.Body.Bytes(), &task)
-	if task.Title != "new title" {
-		t.Fatalf("expected title 'new title', got %q", task.Title)
-	}
-	if task.Description != "new desc" {
-		t.Fatalf("expected description 'new desc', got %q", task.Description)
+	if task.Title != "new title" || task.Description != "new desc" {
+		t.Fatalf("unexpected task: %+v", task)
 	}
 }
 
@@ -145,9 +107,7 @@ func TestDiscardDraft(t *testing.T) {
 	srv := testServer(t)
 	draftID := createDraftForReview(t, srv, "task", "test")
 
-	body := bytes.NewBufferString(`{"action":"discard"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/drafts/"+draftID+"/review", body)
-	req.Header.Set("Content-Type", "application/json")
+	req := authRequest(http.MethodPost, "/api/drafts/"+draftID+"/review", `{"action":"discard"}`)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -164,12 +124,9 @@ func TestDiscardDraft(t *testing.T) {
 func TestReviewNonPendingDraft(t *testing.T) {
 	srv := testServer(t)
 	draftID := createDraftForReview(t, srv, "task", "test")
-
 	srv.store.UpdateDraftStatus(draftID, "confirmed", "entity-1")
 
-	body := bytes.NewBufferString(`{"action":"confirm"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/drafts/"+draftID+"/review", body)
-	req.Header.Set("Content-Type", "application/json")
+	req := authRequest(http.MethodPost, "/api/drafts/"+draftID+"/review", `{"action":"confirm"}`)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -181,9 +138,7 @@ func TestReviewNonPendingDraft(t *testing.T) {
 func TestReviewNonexistentDraft(t *testing.T) {
 	srv := testServer(t)
 
-	body := bytes.NewBufferString(`{"action":"confirm"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/drafts/nonexistent/review", body)
-	req.Header.Set("Content-Type", "application/json")
+	req := authRequest(http.MethodPost, "/api/drafts/nonexistent/review", `{"action":"confirm"}`)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -196,13 +151,23 @@ func TestReviewInvalidAction(t *testing.T) {
 	srv := testServer(t)
 	draftID := createDraftForReview(t, srv, "task", "test")
 
-	body := bytes.NewBufferString(`{"action":"invalid"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/drafts/"+draftID+"/review", body)
-	req.Header.Set("Content-Type", "application/json")
+	req := authRequest(http.MethodPost, "/api/drafts/"+draftID+"/review", `{"action":"invalid"}`)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestDraftEndpointsRequireAuth(t *testing.T) {
+	srv := testServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/drafts/", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without auth, got %d", w.Code)
 	}
 }

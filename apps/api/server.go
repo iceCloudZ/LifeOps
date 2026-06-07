@@ -52,7 +52,30 @@ func NewServer(token string, store *Store) *Server {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.Path, "/api/inbox/webhook") {
+		if r.Header.Get("X-LifeOps-Token") != s.token {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+	} else if strings.HasPrefix(r.URL.Path, "/api/") {
+		if !s.validateBearerToken(r) {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+	}
 	s.mux.ServeHTTP(w, r)
+}
+
+func (s *Server) validateBearerToken(r *http.Request) bool {
+	auth := r.Header.Get("Authorization")
+	if strings.HasPrefix(auth, "Bearer ") {
+		token := strings.TrimPrefix(auth, "Bearer ")
+		return token == s.token
+	}
+	if r.Header.Get("X-LifeOps-Token") == s.token {
+		return true
+	}
+	return false
 }
 
 func (s *Server) handleDraftRoutes(w http.ResponseWriter, r *http.Request) {
@@ -80,10 +103,6 @@ func writeJSONError(w http.ResponseWriter, status int, code, message string) {
 func (s *Server) handleWebhookInbox(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-	if r.Header.Get("X-LifeOps-Token") != s.token {
-		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
 

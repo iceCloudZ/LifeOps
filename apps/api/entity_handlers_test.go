@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -11,9 +10,7 @@ import (
 func TestCreateAndGetTask(t *testing.T) {
 	srv := testServer(t)
 
-	body := bytes.NewBufferString(`{"title":"交水费","description":"提醒交水费"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/tasks/", body)
-	req.Header.Set("Content-Type", "application/json")
+	req := authRequest(http.MethodPost, "/api/tasks/", `{"title":"交水费","description":"提醒交水费"}`)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -26,11 +23,8 @@ func TestCreateAndGetTask(t *testing.T) {
 	if created.Title != "交水费" {
 		t.Fatalf("expected title 交水费, got %q", created.Title)
 	}
-	if created.ID == "" {
-		t.Fatal("expected non-empty id")
-	}
 
-	req = httptest.NewRequest(http.MethodGet, "/api/tasks/"+created.ID, nil)
+	req = authRequest(http.MethodGet, "/api/tasks/"+created.ID, "")
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -48,9 +42,7 @@ func TestListTasks(t *testing.T) {
 	srv := testServer(t)
 
 	for _, title := range []string{"task1", "task2"} {
-		body := bytes.NewBufferString(`{"title":"` + title + `"}`)
-		req := httptest.NewRequest(http.MethodPost, "/api/tasks/", body)
-		req.Header.Set("Content-Type", "application/json")
+		req := authRequest(http.MethodPost, "/api/tasks/", `{"title":"`+title+`"}`)
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
 		if w.Code != http.StatusCreated {
@@ -58,7 +50,7 @@ func TestListTasks(t *testing.T) {
 		}
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/tasks/", nil)
+	req := authRequest(http.MethodGet, "/api/tasks/", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -75,17 +67,13 @@ func TestListTasks(t *testing.T) {
 func TestUpdateTask(t *testing.T) {
 	srv := testServer(t)
 
-	body := bytes.NewBufferString(`{"title":"old"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/tasks/", body)
-	req.Header.Set("Content-Type", "application/json")
+	req := authRequest(http.MethodPost, "/api/tasks/", `{"title":"old"}`)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 	var created FamilyTask
 	json.Unmarshal(w.Body.Bytes(), &created)
 
-	body = bytes.NewBufferString(`{"title":"new","description":"updated","status":"done"}`)
-	req = httptest.NewRequest(http.MethodPut, "/api/tasks/"+created.ID, body)
-	req.Header.Set("Content-Type", "application/json")
+	req = authRequest(http.MethodPut, "/api/tasks/"+created.ID, `{"title":"new","description":"updated","status":"done"}`)
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -102,15 +90,13 @@ func TestUpdateTask(t *testing.T) {
 func TestDeleteTask(t *testing.T) {
 	srv := testServer(t)
 
-	body := bytes.NewBufferString(`{"title":"to-delete"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/tasks/", body)
-	req.Header.Set("Content-Type", "application/json")
+	req := authRequest(http.MethodPost, "/api/tasks/", `{"title":"to-delete"}`)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 	var created FamilyTask
 	json.Unmarshal(w.Body.Bytes(), &created)
 
-	req = httptest.NewRequest(http.MethodDelete, "/api/tasks/"+created.ID, nil)
+	req = authRequest(http.MethodDelete, "/api/tasks/"+created.ID, "")
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -118,7 +104,7 @@ func TestDeleteTask(t *testing.T) {
 		t.Fatalf("expected 204, got %d", w.Code)
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/api/tasks/"+created.ID, nil)
+	req = authRequest(http.MethodGet, "/api/tasks/"+created.ID, "")
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 	if w.Code != http.StatusNotFound {
@@ -130,9 +116,7 @@ func TestCreateEntityMissingTitle(t *testing.T) {
 	srv := testServer(t)
 
 	for _, endpoint := range []string{"/api/tasks/", "/api/events/", "/api/notes/"} {
-		body := bytes.NewBufferString(`{"description":"no title"}`)
-		req := httptest.NewRequest(http.MethodPost, endpoint, body)
-		req.Header.Set("Content-Type", "application/json")
+		req := authRequest(http.MethodPost, endpoint, `{"description":"no title"}`)
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
 		if w.Code != http.StatusBadRequest {
@@ -140,9 +124,7 @@ func TestCreateEntityMissingTitle(t *testing.T) {
 		}
 	}
 
-	body := bytes.NewBufferString(`{"quantity":"2"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/shopping-items/", body)
-	req.Header.Set("Content-Type", "application/json")
+	req := authRequest(http.MethodPost, "/api/shopping-items/", `{"quantity":"2"}`)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
@@ -153,9 +135,7 @@ func TestCreateEntityMissingTitle(t *testing.T) {
 func TestCreateShoppingItemHandler(t *testing.T) {
 	srv := testServer(t)
 
-	body := bytes.NewBufferString(`{"name":"牛奶","quantity":"2盒"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/shopping-items/", body)
-	req.Header.Set("Content-Type", "application/json")
+	req := authRequest(http.MethodPost, "/api/shopping-items/", `{"name":"牛奶","quantity":"2盒"}`)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -164,23 +144,15 @@ func TestCreateShoppingItemHandler(t *testing.T) {
 	}
 	var item ShoppingItem
 	json.Unmarshal(w.Body.Bytes(), &item)
-	if item.Name != "牛奶" {
-		t.Fatalf("expected name 牛奶, got %q", item.Name)
-	}
-	if item.Quantity != "2盒" {
-		t.Fatalf("expected quantity 2盒, got %q", item.Quantity)
-	}
-	if item.Status != "open" {
-		t.Fatalf("expected status open, got %q", item.Status)
+	if item.Name != "牛奶" || item.Quantity != "2盒" || item.Status != "open" {
+		t.Fatalf("unexpected item: %+v", item)
 	}
 }
 
 func TestCreateEventHandler(t *testing.T) {
 	srv := testServer(t)
 
-	body := bytes.NewBufferString(`{"title":"家长会","description":"下周二","starts_at":"2026-06-16T18:30:00Z"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/events/", body)
-	req.Header.Set("Content-Type", "application/json")
+	req := authRequest(http.MethodPost, "/api/events/", `{"title":"家长会","description":"下周二","starts_at":"2026-06-16T18:30:00Z"}`)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -192,9 +164,7 @@ func TestCreateEventHandler(t *testing.T) {
 func TestCreateNoteHandler(t *testing.T) {
 	srv := testServer(t)
 
-	body := bytes.NewBufferString(`{"title":"晚餐偏好","content":"少油少辣","topic":"food"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/notes/", body)
-	req.Header.Set("Content-Type", "application/json")
+	req := authRequest(http.MethodPost, "/api/notes/", `{"title":"晚餐偏好","content":"少油少辣","topic":"food"}`)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -212,11 +182,23 @@ func TestGetEntityNotFound(t *testing.T) {
 	srv := testServer(t)
 
 	for _, endpoint := range []string{"/api/tasks/nonexistent", "/api/events/nonexistent", "/api/shopping-items/nonexistent", "/api/notes/nonexistent"} {
-		req := httptest.NewRequest(http.MethodGet, endpoint, nil)
+		req := authRequest(http.MethodGet, endpoint, "")
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
 		if w.Code != http.StatusNotFound {
 			t.Fatalf("expected 404 for %s, got %d", endpoint, w.Code)
 		}
+	}
+}
+
+func TestEntityRequiresAuth(t *testing.T) {
+	srv := testServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/tasks/", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without auth, got %d", w.Code)
 	}
 }

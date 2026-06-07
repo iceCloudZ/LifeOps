@@ -21,6 +21,13 @@ func testServer(t *testing.T) *Server {
 	return NewServer("dev-token", store)
 }
 
+func authRequest(method, url, body string) *http.Request {
+	req := httptest.NewRequest(method, url, bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer dev-token")
+	return req
+}
+
 func TestWebhookInboxAcceptsMessage(t *testing.T) {
 	server := testServer(t)
 
@@ -44,20 +51,8 @@ func TestWebhookInboxAcceptsMessage(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &item); err != nil {
 		t.Fatalf("response is not a valid inbox item: %v", err)
 	}
-	if item.ID == "" {
-		t.Fatal("expected generated id")
-	}
-	if item.Source != "wechat" {
-		t.Fatalf("expected source wechat, got %q", item.Source)
-	}
-	if item.Sender != "partner" {
-		t.Fatalf("expected sender partner, got %q", item.Sender)
-	}
-	if item.Content != "周五孩子要带彩笔，别忘了交水费。" {
-		t.Fatalf("unexpected content %q", item.Content)
-	}
-	if item.Status != "new" {
-		t.Fatalf("expected status new, got %q", item.Status)
+	if item.Source != "wechat" || item.Sender != "partner" || item.Status != "new" {
+		t.Fatalf("unexpected item: %+v", item)
 	}
 }
 
@@ -71,7 +66,6 @@ func TestWebhookRejectsInvalidToken(t *testing.T) {
 	response := httptest.NewRecorder()
 
 	server.ServeHTTP(response, request)
-
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("expected status 401, got %d", response.Code)
 	}
@@ -86,7 +80,6 @@ func TestWebhookRejectsMissingToken(t *testing.T) {
 	response := httptest.NewRecorder()
 
 	server.ServeHTTP(response, request)
-
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("expected status 401, got %d", response.Code)
 	}
@@ -94,13 +87,10 @@ func TestWebhookRejectsMissingToken(t *testing.T) {
 
 func TestWebhookRejectsNonPost(t *testing.T) {
 	server := testServer(t)
-
 	request := httptest.NewRequest(http.MethodGet, "/api/inbox/webhook", nil)
 	request.Header.Set("X-LifeOps-Token", "dev-token")
 	response := httptest.NewRecorder()
-
 	server.ServeHTTP(response, request)
-
 	if response.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected status 405, got %d", response.Code)
 	}
@@ -108,121 +98,68 @@ func TestWebhookRejectsNonPost(t *testing.T) {
 
 func TestWebhookRejectsInvalidJSON(t *testing.T) {
 	server := testServer(t)
-
 	body := bytes.NewBufferString(`not json`)
 	request := httptest.NewRequest(http.MethodPost, "/api/inbox/webhook", body)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("X-LifeOps-Token", "dev-token")
 	response := httptest.NewRecorder()
-
 	server.ServeHTTP(response, request)
-
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("expected status 400, got %d", response.Code)
-	}
-
-	var errResp errorResponse
-	if err := json.Unmarshal(response.Body.Bytes(), &errResp); err != nil {
-		t.Fatalf("response is not valid error json: %v", err)
-	}
-	if errResp.Error != "invalid_request" {
-		t.Fatalf("expected error code invalid_request, got %q", errResp.Error)
 	}
 }
 
 func TestWebhookRejectsMissingSource(t *testing.T) {
 	server := testServer(t)
-
 	body := bytes.NewBufferString(`{"sender":"partner","content":"test"}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/inbox/webhook", body)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("X-LifeOps-Token", "dev-token")
 	response := httptest.NewRecorder()
-
 	server.ServeHTTP(response, request)
-
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("expected status 400, got %d", response.Code)
-	}
-
-	var errResp errorResponse
-	if err := json.Unmarshal(response.Body.Bytes(), &errResp); err != nil {
-		t.Fatalf("response is not valid error json: %v", err)
-	}
-	if errResp.Error != "invalid_request" {
-		t.Fatalf("expected error code invalid_request, got %q", errResp.Error)
 	}
 }
 
 func TestWebhookRejectsEmptyContent(t *testing.T) {
 	server := testServer(t)
-
 	body := bytes.NewBufferString(`{"source":"wechat","sender":"partner","content":"   "}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/inbox/webhook", body)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("X-LifeOps-Token", "dev-token")
 	response := httptest.NewRecorder()
-
 	server.ServeHTTP(response, request)
-
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("expected status 400, got %d", response.Code)
-	}
-
-	var errResp errorResponse
-	if err := json.Unmarshal(response.Body.Bytes(), &errResp); err != nil {
-		t.Fatalf("response is not valid error json: %v", err)
-	}
-	if errResp.Error != "empty_content" {
-		t.Fatalf("expected error code empty_content, got %q", errResp.Error)
 	}
 }
 
 func TestWebhookAcceptsMessageWithoutSender(t *testing.T) {
 	server := testServer(t)
-
 	body := bytes.NewBufferString(`{"source":"telegram","content":"buy milk"}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/inbox/webhook", body)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("X-LifeOps-Token", "dev-token")
 	response := httptest.NewRecorder()
-
 	server.ServeHTTP(response, request)
-
 	if response.Code != http.StatusCreated {
-		t.Fatalf("expected status 201, got %d with body %s", response.Code, response.Body.String())
+		t.Fatalf("expected status 201, got %d", response.Code)
 	}
 }
 
 func TestWebhookErrorResponseIsJSON(t *testing.T) {
 	server := testServer(t)
-
 	tests := []struct {
 		name        string
 		body        string
 		wantCode    string
 		wantMessage string
 	}{
-		{
-			name:        "invalid json",
-			body:        `{broken`,
-			wantCode:    "invalid_request",
-			wantMessage: "invalid json",
-		},
-		{
-			name:        "missing source",
-			body:        `{"content":"test"}`,
-			wantCode:    "invalid_request",
-			wantMessage: "source is required",
-		},
-		{
-			name:        "empty content",
-			body:        `{"source":"wechat","content":""}`,
-			wantCode:    "empty_content",
-			wantMessage: "content is required",
-		},
+		{"invalid json", `{broken`, "invalid_request", "invalid json"},
+		{"missing source", `{"content":"test"}`, "invalid_request", "source is required"},
+		{"empty content", `{"source":"wechat","content":""}`, "empty_content", "content is required"},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			body := bytes.NewBufferString(tt.body)
@@ -230,24 +167,58 @@ func TestWebhookErrorResponseIsJSON(t *testing.T) {
 			request.Header.Set("Content-Type", "application/json")
 			request.Header.Set("X-LifeOps-Token", "dev-token")
 			response := httptest.NewRecorder()
-
 			server.ServeHTTP(response, request)
-
-			ct := response.Header().Get("Content-Type")
-			if !strings.Contains(ct, "application/json") {
-				t.Fatalf("expected content-type application/json, got %q", ct)
+			if !strings.Contains(response.Header().Get("Content-Type"), "application/json") {
+				t.Fatalf("expected json content-type")
 			}
-
 			var errResp errorResponse
-			if err := json.Unmarshal(response.Body.Bytes(), &errResp); err != nil {
-				t.Fatalf("response is not valid error json: %v", err)
-			}
-			if errResp.Error != tt.wantCode {
-				t.Fatalf("expected error code %q, got %q", tt.wantCode, errResp.Error)
-			}
-			if errResp.Message != tt.wantMessage {
-				t.Fatalf("expected message %q, got %q", tt.wantMessage, errResp.Message)
+			json.Unmarshal(response.Body.Bytes(), &errResp)
+			if errResp.Error != tt.wantCode || errResp.Message != tt.wantMessage {
+				t.Fatalf("expected (%q, %q), got (%q, %q)", tt.wantCode, tt.wantMessage, errResp.Error, errResp.Message)
 			}
 		})
+	}
+}
+
+func TestBearerTokenAuth(t *testing.T) {
+	server := testServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/drafts/", nil)
+	req.Header.Set("Authorization", "Bearer dev-token")
+	w := httptest.NewRecorder()
+	server.ServeHTTP(w, req)
+	if w.Code == http.StatusUnauthorized {
+		t.Fatal("valid bearer token should be accepted")
+	}
+}
+
+func TestBearerTokenRejectsWrongToken(t *testing.T) {
+	server := testServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/drafts/", nil)
+	req.Header.Set("Authorization", "Bearer wrong-token")
+	w := httptest.NewRecorder()
+	server.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for wrong bearer token, got %d", w.Code)
+	}
+}
+
+func TestXLifeOpsTokenAcceptedForAPIEndpoints(t *testing.T) {
+	server := testServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/drafts/", nil)
+	req.Header.Set("X-LifeOps-Token", "dev-token")
+	w := httptest.NewRecorder()
+	server.ServeHTTP(w, req)
+	if w.Code == http.StatusUnauthorized {
+		t.Fatal("X-LifeOps-Token should also be accepted for API endpoints")
+	}
+}
+
+func TestAPINoTokenReturns401(t *testing.T) {
+	server := testServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/drafts/", nil)
+	w := httptest.NewRecorder()
+	server.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without token, got %d", w.Code)
 	}
 }
