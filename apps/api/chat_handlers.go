@@ -395,10 +395,10 @@ func (s *Server) handleDomainRoutes(w http.ResponseWriter, r *http.Request) {
 	case path == "/api/family/records":
 		s.handleFamilyRecords(w, r)
 
-	// Movement (reuses health records with type=exercise)
+	// Movement (uses dedicated movement_records table)
 	case strings.HasPrefix(path, "/api/movement/records/"):
 		id := strings.TrimPrefix(path, "/api/movement/records/")
-		s.handleHealthRecordByID(w, r, id)
+		s.handleMovementRecordByID(w, r, id)
 	case path == "/api/movement/records":
 		s.handleMovementRecords(w, r)
 
@@ -851,9 +851,9 @@ func (s *Server) handleMovementRecords(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		memberID := r.URL.Query().Get("member_id")
-		records, _ := s.store.ListHealthRecords(memberID, "exercise")
+		records, _ := s.store.ListMovementRecords(memberID)
 		if records == nil {
-			records = []HealthRecord{}
+			records = []MovementRecord{}
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(records)
@@ -870,18 +870,28 @@ func (s *Server) handleMovementRecords(w http.ResponseWriter, r *http.Request) {
 			writeJSONError(w, http.StatusBadRequest, "invalid_request", "invalid json")
 			return
 		}
-		rec := &HealthRecord{
-			ID: newID(), MemberID: req.MemberID, Type: "exercise",
+		rec := &MovementRecord{
+			ID: newID(), MemberID: req.MemberID,
 			Metric: req.Metric, Value: req.Value, Unit: req.Unit,
 			Note: req.Note, RecordDate: req.RecordDate,
 		}
-		if err := s.store.CreateHealthRecord(rec); err != nil {
+		if err := s.store.CreateMovementRecord(rec); err != nil {
 			writeJSONError(w, http.StatusInternalServerError, "internal_error", err.Error())
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(rec)
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleMovementRecordByID(w http.ResponseWriter, r *http.Request, id string) {
+	switch r.Method {
+	case http.MethodDelete:
+		s.store.DeleteMovementRecord(id)
+		w.WriteHeader(http.StatusNoContent)
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}

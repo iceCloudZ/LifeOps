@@ -234,6 +234,18 @@ func (s *Store) migrate() error {
 			created_at      DATETIME NOT NULL,
 			FOREIGN KEY (conversation_id) REFERENCES conversations(id)
 		)`,
+		`CREATE TABLE IF NOT EXISTS movement_records (
+				id          TEXT PRIMARY KEY,
+				member_id   TEXT NOT NULL,
+				metric      TEXT,
+				value       TEXT,
+				unit        TEXT,
+				note        TEXT DEFAULT '',
+				record_date TEXT NOT NULL,
+				created_at  DATETIME NOT NULL,
+				updated_at  DATETIME NOT NULL,
+				FOREIGN KEY (member_id) REFERENCES family_members(id)
+			)`,
 		`CREATE TABLE IF NOT EXISTS ai_config (
 			id         INTEGER PRIMARY KEY DEFAULT 1,
 			endpoint   TEXT NOT NULL DEFAULT 'https://api.openai.com/v1',
@@ -251,7 +263,18 @@ func (s *Store) migrate() error {
 			return fmt.Errorf("exec migration: %w", err)
 		}
 	}
+
+	// Migrate exercise records from health_records to movement_records
+	s.migrateExerciseRecords()
+
 	return nil
+}
+
+func (s *Store) migrateExerciseRecords() {
+	s.db.Exec(`INSERT OR IGNORE INTO movement_records (id, member_id, metric, value, unit, note, record_date, created_at, updated_at)
+		SELECT id, member_id, metric, value, unit, note, record_date, created_at, updated_at
+		FROM health_records WHERE type = 'exercise'`)
+	s.db.Exec(`DELETE FROM health_records WHERE type = 'exercise' AND id IN (SELECT id FROM movement_records)`)
 }
 
 // InboxItem operations

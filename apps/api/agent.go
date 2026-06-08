@@ -467,7 +467,7 @@ func (a *MovementAgent) SystemPrompt() string {
 func (a *MovementAgent) RetrieveContext(query string, memberID string) (*AgentContext, error) {
 	ctx := &AgentContext{}
 
-	records, err := a.store.ListHealthRecords("", "exercise")
+	records, err := a.store.ListMovementRecords("")
 	if err != nil {
 		return nil, err
 	}

@@ -782,6 +782,89 @@ func (s *Store) DeleteKnowledgeNote(id string) error {
 	return err
 }
 
+// MovementRecord
+
+type MovementRecord struct {
+	ID         string  `json:"id"`
+	MemberID   string  `json:"member_id"`
+	Metric     *string `json:"metric"`
+	Value      *string `json:"value"`
+	Unit       *string `json:"unit"`
+	Note       string  `json:"note"`
+	RecordDate string  `json:"record_date"`
+	CreatedAt  string  `json:"created_at"`
+	UpdatedAt  string  `json:"updated_at"`
+}
+
+func (s *Store) CreateMovementRecord(r *MovementRecord) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := s.db.Exec(
+		`INSERT INTO movement_records (id, member_id, metric, value, unit, note, record_date, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.ID, r.MemberID, r.Metric, r.Value, r.Unit, r.Note, r.RecordDate, now, now,
+	)
+	return err
+}
+
+func (s *Store) ListMovementRecords(memberID string) ([]MovementRecord, error) {
+	query := `SELECT id, member_id, metric, value, unit, note, record_date, created_at, updated_at FROM movement_records`
+	var args []interface{}
+	if memberID != "" {
+		query += ` WHERE member_id = ?`
+		args = append(args, memberID)
+	}
+	query += ` ORDER BY record_date DESC`
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var records []MovementRecord
+	for rows.Next() {
+		var r MovementRecord
+		if err := rows.Scan(&r.ID, &r.MemberID, &r.Metric, &r.Value, &r.Unit, &r.Note, &r.RecordDate, &r.CreatedAt, &r.UpdatedAt); err != nil {
+			return nil, err
+		}
+		records = append(records, r)
+	}
+	return records, rows.Err()
+}
+
+func (s *Store) GetMovementRecord(id string) (*MovementRecord, error) {
+	var r MovementRecord
+	err := s.db.QueryRow(
+		`SELECT id, member_id, metric, value, unit, note, record_date, created_at, updated_at FROM movement_records WHERE id = ?`, id,
+	).Scan(&r.ID, &r.MemberID, &r.Metric, &r.Value, &r.Unit, &r.Note, &r.RecordDate, &r.CreatedAt, &r.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &r, nil
+}
+
+func (s *Store) UpdateMovementRecord(id string, memberID string, metric, value, unit *string, note, recordDate string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.Exec(
+		`UPDATE movement_records SET member_id = ?, metric = ?, value = ?, unit = ?, note = ?, record_date = ?, updated_at = ? WHERE id = ?`,
+		memberID, metric, value, unit, note, recordDate, time.Now().UTC().Format(time.RFC3339), id,
+	)
+	return err
+}
+
+func (s *Store) DeleteMovementRecord(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.Exec(`DELETE FROM movement_records WHERE id = ?`, id)
+	return err
+}
+
 // AI Config
 
 type AIConfig struct {
