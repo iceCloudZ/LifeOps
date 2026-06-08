@@ -18,7 +18,7 @@ func testServer(t *testing.T) *Server {
 		t.Fatalf("create store: %v", err)
 	}
 	t.Cleanup(func() { store.Close() })
-	return NewServer("dev-token", store)
+	return NewServer("dev-token", store, nil)
 }
 
 func authRequest(method, url, body string) *http.Request {

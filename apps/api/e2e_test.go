@@ -27,7 +27,7 @@ func newE2EClient(t *testing.T) *e2eClient {
 	}
 	t.Cleanup(func() { store.Close() })
 
-	srv := NewServer("test-token", store)
+	srv := NewServer("test-token", store, nil)
 	ts := httptest.NewServer(srv)
 	t.Cleanup(func() { ts.Close() })
 
@@ -300,7 +300,7 @@ func TestE2E_DataPersistsInSQLite(t *testing.T) {
 
 	// Session 1: create store, server, post a task
 	store1, _ := NewStore(dbPath)
-	srv1 := NewServer("token1", store1)
+	srv1 := NewServer("token1", store1, nil)
 	ts1 := httptest.NewServer(srv1)
 
 	req, _ := http.NewRequest(http.MethodPost, ts1.URL+"/api/tasks/", bytes.NewBufferString(`{"title":"persistent task"}`))
@@ -316,7 +316,7 @@ func TestE2E_DataPersistsInSQLite(t *testing.T) {
 
 	// Session 2: new store and server with same DB
 	store2, _ := NewStore(dbPath)
-	srv2 := NewServer("token1", store2)
+	srv2 := NewServer("token1", store2, nil)
 	ts2 := httptest.NewServer(srv2)
 	defer ts2.Close()
 	defer store2.Close()
