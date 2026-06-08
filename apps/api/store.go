@@ -253,6 +253,19 @@ func (s *Store) migrate() error {
 			api_key    TEXT NOT NULL DEFAULT '',
 			max_tokens INTEGER NOT NULL DEFAULT 2048
 		)`,
+			`CREATE TABLE IF NOT EXISTS llm_usage (
+				id                TEXT PRIMARY KEY,
+				conversation_id   TEXT NOT NULL DEFAULT '',
+				model             TEXT NOT NULL,
+				lens_id           TEXT DEFAULT '',
+				domain            TEXT NOT NULL DEFAULT '',
+				prompt_tokens     INTEGER NOT NULL DEFAULT 0,
+				completion_tokens INTEGER NOT NULL DEFAULT 0,
+				total_tokens      INTEGER NOT NULL DEFAULT 0,
+				cost_cents        INTEGER NOT NULL DEFAULT 0,
+				latency_ms        INTEGER NOT NULL DEFAULT 0,
+				created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+			)`,
 	}
 
 	s.mu.Lock()

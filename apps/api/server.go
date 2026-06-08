@@ -64,6 +64,7 @@ func NewServer(token string, store *Store, butler *ButlerAgent) *Server {
 	server.mux.HandleFunc("/api/chat/conversations/", server.handleConversationRoutes)
 	server.mux.HandleFunc("/api/quick-entry", server.handleQuickEntryRoute)
 	server.mux.HandleFunc("/api/config/ai", server.handleAIConfigRoute)
+	server.mux.HandleFunc("/api/admin/llm/", server.handleAdminLLMRoutes)
 	return server
 }
 

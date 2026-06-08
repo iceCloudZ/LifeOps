@@ -46,7 +46,7 @@ User question: %s
 Respond with JSON only, no explanation:
 {"lens_id": "the-best-matching-lens-id", "reason": "one sentence why"}`, domain, index, query)
 
-	resp, err := sr.llm.Chat([]ChatMessage{
+	chatResult, err := sr.llm.Chat([]ChatMessage{
 		{Role: "system", Content: "You select the best lifestyle lens for the user's situation. Return JSON only."},
 		{Role: "user", Content: prompt},
 	})
@@ -54,7 +54,7 @@ Respond with JSON only, no explanation:
 		return nil, fmt.Errorf("skill routing: %w", err)
 	}
 
-	resp = strings.TrimSpace(resp)
+	resp := strings.TrimSpace(chatResult.Content)
 	resp = strings.TrimPrefix(resp, "```json")
 	resp = strings.TrimPrefix(resp, "```")
 	resp = strings.TrimSuffix(resp, "```")

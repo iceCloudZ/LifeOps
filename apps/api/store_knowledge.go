@@ -1185,3 +1185,176 @@ func (s *Store) DeleteMessage(id string) error {
 	_, err := s.db.Exec(`DELETE FROM messages WHERE id = ?`, id)
 	return err
 }
+
+// LLMUsage
+
+type LLMUsage struct {
+	ID               string `json:"id"`
+	ConversationID   string `json:"conversation_id"`
+	Model            string `json:"model"`
+	LensID           string `json:"lens_id"`
+	Domain           string `json:"domain"`
+	PromptTokens     int    `json:"prompt_tokens"`
+	CompletionTokens int    `json:"completion_tokens"`
+	TotalTokens      int    `json:"total_tokens"`
+	CostCents        int    `json:"cost_cents"`
+	LatencyMs        int    `json:"latency_ms"`
+	CreatedAt        string `json:"created_at"`
+}
+
+func (s *Store) CreateLLMUsage(u *LLMUsage) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.Exec(
+		`INSERT INTO llm_usage (id, conversation_id, model, lens_id, domain, prompt_tokens, completion_tokens, total_tokens, cost_cents, latency_ms, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		u.ID, u.ConversationID, u.Model, u.LensID, u.Domain,
+		u.PromptTokens, u.CompletionTokens, u.TotalTokens,
+		u.CostCents, u.LatencyMs, time.Now().UTC().Format(time.RFC3339),
+	)
+	return err
+}
+
+func (s *Store) QueryLLMDashboard() (map[string]interface{}, error) {
+	now := time.Now().UTC()
+	today := now.Format("2006-01-02")
+	weekStart := now.AddDate(0, 0, -int(now.Weekday())).Format("2006-01-02")
+	monthStart := now.Format("2006-01") + "-01"
+
+	stats := make(map[string]interface{})
+	for _, period := range []struct {
+		label string
+		since string
+	}{
+		{"today", today}, {"week", weekStart}, {"month", monthStart}, {"total", "2000-01-01"},
+	} {
+		var count, totalTokens, totalCost int
+		err := s.db.QueryRow(
+			`SELECT COUNT(*), COALESCE(SUM(total_tokens),0), COALESCE(SUM(cost_cents),0)
+			 FROM llm_usage WHERE created_at >= ?`, period.since,
+		).Scan(&count, &totalTokens, &totalCost)
+		if err != nil {
+			return nil, err
+		}
+		stats[period.label] = map[string]interface{}{
+			"calls":        count,
+			"total_tokens": totalTokens,
+			"cost_cents":   totalCost,
+		}
+	}
+	return stats, nil
+}
+
+func (s *Store) QueryLLMUsage(groupBy, startDate, endDate string) ([]map[string]interface{}, error) {
+	var selectCols, groupExpr string
+	switch groupBy {
+	case "session":
+		selectCols = "conversation_id, COUNT(*) as calls, SUM(prompt_tokens) as prompt_tokens, SUM(completion_tokens) as completion_tokens, SUM(total_tokens) as total_tokens, SUM(cost_cents) as cost_cents"
+		groupExpr = "conversation_id"
+	case "lens":
+		selectCols = "lens_id, COUNT(*) as calls, SUM(prompt_tokens) as prompt_tokens, SUM(completion_tokens) as completion_tokens, SUM(total_tokens) as total_tokens, SUM(cost_cents) as cost_cents"
+		groupExpr = "lens_id"
+	default: // day
+		selectCols = "DATE(created_at) as period, COUNT(*) as calls, SUM(prompt_tokens) as prompt_tokens, SUM(completion_tokens) as completion_tokens, SUM(total_tokens) as total_tokens, SUM(cost_cents) as cost_cents"
+		groupExpr = "DATE(created_at)"
+	}
+
+	query := "SELECT " + selectCols + " FROM llm_usage"
+	var args []interface{}
+	var conditions []string
+	if startDate != "" {
+		conditions = append(conditions, "created_at >= ?")
+		args = append(args, startDate)
+	}
+	if endDate != "" {
+		conditions = append(conditions, "created_at <= ?")
+		args = append(args, endDate+"T23:59:59")
+	}
+	if len(conditions) > 0 {
+		query += " WHERE " + conditions[0]
+		for _, c := range conditions[1:] {
+			query += " AND " + c
+		}
+	}
+	query += " GROUP BY " + groupExpr + " ORDER BY 1"
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	cols, _ := rows.Columns()
+	var results []map[string]interface{}
+	for rows.Next() {
+		vals := make([]interface{}, len(cols))
+		valPtrs := make([]interface{}, len(cols))
+		for i := range vals {
+			valPtrs[i] = &vals[i]
+		}
+		if err := rows.Scan(valPtrs...); err != nil {
+			return nil, err
+		}
+		row := make(map[string]interface{})
+		for i, col := range cols {
+			row[col] = vals[i]
+		}
+		results = append(results, row)
+	}
+	return results, rows.Err()
+}
+
+func (s *Store) QueryLLMCostTrend(days int) ([]map[string]interface{}, error) {
+	since := time.Now().UTC().AddDate(0, 0, -days).Format("2006-01-02")
+	rows, err := s.db.Query(
+		`SELECT DATE(created_at) as date, COUNT(*) as calls, SUM(total_tokens) as total_tokens, SUM(cost_cents) as cost_cents
+		 FROM llm_usage WHERE created_at >= ? GROUP BY DATE(created_at) ORDER BY date`, since,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []map[string]interface{}
+	for rows.Next() {
+		var date string
+		var calls, totalTokens, costCents int
+		if err := rows.Scan(&date, &calls, &totalTokens, &costCents); err != nil {
+			return nil, err
+		}
+		results = append(results, map[string]interface{}{
+			"date": date, "calls": calls, "total_tokens": totalTokens, "cost_cents": costCents,
+		})
+	}
+	return results, rows.Err()
+}
+
+func (s *Store) QueryTopSessions(limit int) ([]map[string]interface{}, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	rows, err := s.db.Query(
+		`SELECT conversation_id, COUNT(*) as calls, SUM(total_tokens) as total_tokens, SUM(cost_cents) as cost_cents,
+		        MIN(created_at) as first_at, MAX(created_at) as last_at
+		 FROM llm_usage GROUP BY conversation_id ORDER BY cost_cents DESC LIMIT ?`, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []map[string]interface{}
+	for rows.Next() {
+		var convID string
+		var calls, totalTokens, costCents int
+		var firstAt, lastAt string
+		if err := rows.Scan(&convID, &calls, &totalTokens, &costCents, &firstAt, &lastAt); err != nil {
+			return nil, err
+		}
+		results = append(results, map[string]interface{}{
+			"conversation_id": convID, "calls": calls, "total_tokens": totalTokens,
+			"cost_cents": costCents, "first_at": firstAt, "last_at": lastAt,
+		})
+	}
+	return results, rows.Err()
+}

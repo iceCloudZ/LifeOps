@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 )
 
 type AgentContext struct {
@@ -21,6 +22,7 @@ type LensInfo struct {
 type AgentResponse struct {
 	Answer string
 	Lens   *LensInfo
+	Usage  *ChatResult
 }
 
 type Agent interface {
@@ -74,13 +76,13 @@ func (b *ButlerAgent) AnalyzeAndRoute(query string) ([]string, error) {
 		return nil, fmt.Errorf("routing failed: %w", err)
 	}
 
-	resp = strings.TrimSpace(resp)
-	if resp == "" {
+	routing := strings.TrimSpace(resp.Content)
+	if routing == "" {
 		return allDomains(), nil
 	}
 
 	var matched []string
-	for _, part := range strings.Split(resp, ",") {
+	for _, part := range strings.Split(routing, ",") {
 		domain := strings.TrimSpace(part)
 		if _, ok := b.agents[domain]; ok {
 			matched = append(matched, domain)
@@ -97,7 +99,7 @@ func allDomains() []string {
 	return []string{"finance", "health", "work", "family", "movement"}
 }
 
-func (b *ButlerAgent) Answer(query string) (*AgentResponse, error) {
+func (b *ButlerAgent) Answer(query string, conversationID string) (*AgentResponse, error) {
 	domains, err := b.AnalyzeAndRoute(query)
 	if err != nil {
 		return nil, err
@@ -105,12 +107,12 @@ func (b *ButlerAgent) Answer(query string) (*AgentResponse, error) {
 
 	if len(domains) == 1 {
 		agent := b.agents[domains[0]]
-		return b.answerWithAgent(agent, query, domains[0])
+		return b.answerWithAgent(agent, query, domains[0], conversationID)
 	}
 
 	type agentResult struct {
-		domain  string
-		 resp   *AgentResponse
+		domain string
+		resp   *AgentResponse
 		err    error
 	}
 
@@ -122,7 +124,7 @@ func (b *ButlerAgent) Answer(query string) (*AgentResponse, error) {
 		go func(idx int, d string) {
 			defer wg.Done()
 			agent := b.agents[d]
-			resp, err := b.answerWithAgent(agent, query, d)
+			resp, err := b.answerWithAgent(agent, query, d, conversationID)
 			results[idx] = agentResult{domain: d, resp: resp, err: err}
 		}(i, domain)
 	}
@@ -147,14 +149,14 @@ func (b *ButlerAgent) Answer(query string) (*AgentResponse, error) {
 		{Role: "user", Content: fmt.Sprintf("以下是对用户问题各个领域的分析结果：\n\n%s\n\n用户原问题：%s\n\n请综合以上分析，给出一个整体回答。", synthesisPrompt, query)},
 	}
 
-	finalAnswer, err := b.llm.Chat(messages)
+	finalResult, err := b.llm.Chat(messages)
 	if err != nil {
 		return nil, fmt.Errorf("synthesis failed: %w", err)
 	}
-	return &AgentResponse{Answer: finalAnswer, Lens: primaryLens}, nil
+	return &AgentResponse{Answer: finalResult.Content, Lens: primaryLens, Usage: finalResult}, nil
 }
 
-func (b *ButlerAgent) answerWithAgent(agent Agent, query string, domain string) (*AgentResponse, error) {
+func (b *ButlerAgent) answerWithAgent(agent Agent, query string, domain string, conversationID string) (*AgentResponse, error) {
 	ctx, err := agent.RetrieveContext(query, "")
 	if err != nil {
 		return nil, fmt.Errorf("retrieve context for %s: %w", agent.Name(), err)
@@ -203,11 +205,31 @@ func (b *ButlerAgent) answerWithAgent(agent Agent, query string, domain string) 
 		{Role: "user", Content: fmt.Sprintf("参考数据：\n%s\n\n用户问题：%s", contextText, query)},
 	}
 
-	answer, err := b.llm.Chat(messages)
+	start := time.Now()
+	result, err := b.llm.Chat(messages)
 	if err != nil {
 		return nil, err
 	}
-	return &AgentResponse{Answer: answer, Lens: lens}, nil
+	latencyMs := int(time.Since(start).Milliseconds())
+
+	lensID := ""
+	if lens != nil {
+		lensID = lens.ID
+	}
+	b.store.CreateLLMUsage(&LLMUsage{
+		ID:               newID(),
+		ConversationID:   conversationID,
+		Model:            b.llm.ModelName(),
+		LensID:           lensID,
+		Domain:           domain,
+		PromptTokens:     result.PromptTokens,
+		CompletionTokens: result.CompletionTokens,
+		TotalTokens:      result.TotalTokens,
+		CostCents:        CalcCostCents(b.llm.ModelName(), result.PromptTokens, result.CompletionTokens),
+		LatencyMs:        latencyMs,
+	})
+
+	return &AgentResponse{Answer: result.Content, Lens: lens, Usage: result}, nil
 }
 
 // FinanceAgent

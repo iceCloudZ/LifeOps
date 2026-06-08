@@ -123,8 +123,9 @@ func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request, conversatio
 
 	var answer string
 	var lensID, lensName, lensReason string
+	var tokensUsed int
 	if s.butler != nil {
-		resp, err := s.butler.Answer(content)
+		resp, err := s.butler.Answer(content, conversationID)
 		if err != nil {
 			answer = "AI回答失败: " + err.Error()
 		} else {
@@ -133,6 +134,9 @@ func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request, conversatio
 				lensID = resp.Lens.ID
 				lensName = resp.Lens.Name
 				lensReason = resp.Lens.Reason
+			}
+			if resp.Usage != nil {
+				tokensUsed = resp.Usage.TotalTokens
 			}
 		}
 	} else {
@@ -147,6 +151,7 @@ func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request, conversatio
 		LensID:         lensID,
 		LensName:       lensName,
 		LensReason:     lensReason,
+		TokensUsed:     tokensUsed,
 	}
 	if err := s.store.CreateMessage(assistantMsg); err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "internal_error", "failed to save response")
@@ -214,7 +219,7 @@ func (s *Server) handleQuickEntryRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(resp))
+	w.Write([]byte(resp.Content))
 }
 
 // handleAIConfigRoute routes /api/config/ai

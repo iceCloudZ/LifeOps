@@ -63,6 +63,19 @@ type chatResponse struct {
 			Content string `json:"content"`
 		} `json:"message"`
 	} `json:"choices"`
+	Usage struct {
+		PromptTokens     int `json:"prompt_tokens"`
+		CompletionTokens int `json:"completion_tokens"`
+		TotalTokens      int `json:"total_tokens"`
+	} `json:"usage"`
+}
+
+// ChatResult holds the content and token usage from a chat completion.
+type ChatResult struct {
+	Content          string
+	PromptTokens     int
+	CompletionTokens int
+	TotalTokens      int
 }
 
 // streamDelta is the delta structure within a streaming chunk.
@@ -80,10 +93,10 @@ type streamChunk struct {
 	Choices []streamChoice `json:"choices"`
 }
 
-// Chat sends a non-streaming chat completion request and returns the assistant message content.
-func (c *LLMClient) Chat(messages []ChatMessage) (string, error) {
+// Chat sends a non-streaming chat completion request and returns the result with usage.
+func (c *LLMClient) Chat(messages []ChatMessage) (*ChatResult, error) {
 	if c.config.Endpoint == "" {
-		return "", fmt.Errorf("LLM endpoint not configured")
+		return nil, fmt.Errorf("LLM endpoint not configured")
 	}
 
 	reqBody, err := json.Marshal(ChatRequest{
@@ -92,12 +105,12 @@ func (c *LLMClient) Chat(messages []ChatMessage) (string, error) {
 		MaxTokens: c.config.MaxTokens,
 	})
 	if err != nil {
-		return "", fmt.Errorf("marshal request: %w", err)
+		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
 	req, err := http.NewRequest(http.MethodPost, c.config.Endpoint+"/chat/completions", bytes.NewReader(reqBody))
 	if err != nil {
-		return "", fmt.Errorf("create request: %w", err)
+		return nil, fmt.Errorf("create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -107,29 +120,34 @@ func (c *LLMClient) Chat(messages []ChatMessage) (string, error) {
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("llm request failed: %w", err)
+		return nil, fmt.Errorf("llm request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("read response: %w", err)
+		return nil, fmt.Errorf("read response: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("llm returned %d: %s", resp.StatusCode, string(respBody))
+		return nil, fmt.Errorf("llm returned %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	var chatResp chatResponse
 	if err := json.Unmarshal(respBody, &chatResp); err != nil {
-		return "", fmt.Errorf("parse response: %w", err)
+		return nil, fmt.Errorf("parse response: %w", err)
 	}
 
 	if len(chatResp.Choices) == 0 {
-		return "", fmt.Errorf("llm returned no choices")
+		return nil, fmt.Errorf("llm returned no choices")
 	}
 
-	return chatResp.Choices[0].Message.Content, nil
+	return &ChatResult{
+		Content:          chatResp.Choices[0].Message.Content,
+		PromptTokens:     chatResp.Usage.PromptTokens,
+		CompletionTokens: chatResp.Usage.CompletionTokens,
+		TotalTokens:      chatResp.Usage.TotalTokens,
+	}, nil
 }
 
 // ChatStream sends a streaming chat completion request. It returns a channel that
@@ -214,4 +232,28 @@ func (c *LLMClient) ChatStream(messages []ChatMessage) (<-chan string, error) {
 // CountTokens returns a rough token estimate (len(text) / 4).
 func (c *LLMClient) CountTokens(text string) int {
 	return len(text) / 4
+}
+
+// ModelName returns the configured model name.
+func (c *LLMClient) ModelName() string {
+	return c.config.Model
+}
+
+// modelPricing returns (input price per 1K tokens, output price per 1K tokens) in CNY.
+func modelPricing(model string) (float64, float64) {
+	switch model {
+	case "deepseek-chat", "deepseek-v4-pro":
+		return 0.001, 0.002
+	case "gpt-4o-mini":
+		return 0.15, 0.6
+	default:
+		return 0.01, 0.03
+	}
+}
+
+// CalcCostCents returns the cost in 0.01 CNY (cents) for the given usage.
+func CalcCostCents(model string, promptTokens, completionTokens int) int {
+	inputPrice, outputPrice := modelPricing(model)
+	costCNY := float64(promptTokens)/1000*inputPrice + float64(completionTokens)/1000*outputPrice
+	return int(costCNY * 100)
 }
