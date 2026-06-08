@@ -32,7 +32,16 @@
           :class="msg.role"
         >
           <div class="avatar">{{ msg.role === 'user' ? '我' : 'AI' }}</div>
-          <div class="content">{{ msg.content }}</div>
+          <div class="content">
+            {{ msg.content }}
+            <div v-if="msg.role === 'assistant'" class="lens-info">
+              <span v-if="msg.lens_name" class="lens-badge" :title="msg.lens_reason">
+                {{ msg.lens_name }}
+              </span>
+              <span v-else class="lens-badge lens-default">默认回答</span>
+              <span v-if="msg.lens_reason" class="lens-reason">{{ msg.lens_reason }}</span>
+            </div>
+          </div>
         </div>
       </div>
       <div class="chat-input-area">
@@ -112,6 +121,8 @@ export default {
             id: Date.now() + 1,
             role: 'assistant',
             content: reply.content || reply.message,
+            lens_name: reply.lens_name || '',
+            lens_reason: reply.lens_reason || '',
           })
         }
         this.$nextTick(() => this.scrollToBottom())
@@ -131,3 +142,33 @@ export default {
   },
 }
 </script>
+
+<style scoped>
+.lens-info {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.lens-badge {
+  display: inline-block;
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: #e0f0ff;
+  color: #1a73e8;
+  font-weight: 500;
+}
+
+.lens-badge.lens-default {
+  background: #f0f0f0;
+  color: #888;
+}
+
+.lens-reason {
+  font-size: 11px;
+  color: #999;
+}
+</style>

@@ -12,6 +12,17 @@ type AgentContext struct {
 	Notes         []string
 }
 
+type LensInfo struct {
+	ID     string
+	Name   string
+	Reason string
+}
+
+type AgentResponse struct {
+	Answer string
+	Lens   *LensInfo
+}
+
 type Agent interface {
 	Name() string
 	Domain() string
@@ -86,10 +97,10 @@ func allDomains() []string {
 	return []string{"finance", "health", "work", "family", "movement"}
 }
 
-func (b *ButlerAgent) Answer(query string) (string, error) {
+func (b *ButlerAgent) Answer(query string) (*AgentResponse, error) {
 	domains, err := b.AnalyzeAndRoute(query)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	if len(domains) == 1 {
@@ -98,8 +109,8 @@ func (b *ButlerAgent) Answer(query string) (string, error) {
 	}
 
 	type agentResult struct {
-		domain string
-		answer string
+		domain  string
+		 resp   *AgentResponse
 		err    error
 	}
 
@@ -111,18 +122,22 @@ func (b *ButlerAgent) Answer(query string) (string, error) {
 		go func(idx int, d string) {
 			defer wg.Done()
 			agent := b.agents[d]
-			answer, err := b.answerWithAgent(agent, query, d)
-			results[idx] = agentResult{domain: d, answer: answer, err: err}
+			resp, err := b.answerWithAgent(agent, query, d)
+			results[idx] = agentResult{domain: d, resp: resp, err: err}
 		}(i, domain)
 	}
 	wg.Wait()
 
 	var parts []string
+	var primaryLens *LensInfo
 	for _, r := range results {
 		if r.err != nil {
 			parts = append(parts, fmt.Sprintf("[%s] 获取数据失败: %v", r.domain, r.err))
 		} else {
-			parts = append(parts, fmt.Sprintf("[%s] %s", r.domain, r.answer))
+			parts = append(parts, fmt.Sprintf("[%s] %s", r.domain, r.resp.Answer))
+			if primaryLens == nil && r.resp.Lens != nil {
+				primaryLens = r.resp.Lens
+			}
 		}
 	}
 
@@ -134,18 +149,19 @@ func (b *ButlerAgent) Answer(query string) (string, error) {
 
 	finalAnswer, err := b.llm.Chat(messages)
 	if err != nil {
-		return "", fmt.Errorf("synthesis failed: %w", err)
+		return nil, fmt.Errorf("synthesis failed: %w", err)
 	}
-	return finalAnswer, nil
+	return &AgentResponse{Answer: finalAnswer, Lens: primaryLens}, nil
 }
 
-func (b *ButlerAgent) answerWithAgent(agent Agent, query string, domain string) (string, error) {
+func (b *ButlerAgent) answerWithAgent(agent Agent, query string, domain string) (*AgentResponse, error) {
 	ctx, err := agent.RetrieveContext(query, "")
 	if err != nil {
-		return "", fmt.Errorf("retrieve context for %s: %w", agent.Name(), err)
+		return nil, fmt.Errorf("retrieve context for %s: %w", agent.Name(), err)
 	}
 
 	systemPrompt := agent.SystemPrompt()
+	var lens *LensInfo
 
 	if b.router != nil {
 		result, _ := b.router.Route(query, domain)
@@ -153,6 +169,15 @@ func (b *ButlerAgent) answerWithAgent(agent Agent, query string, domain string) 
 			lensPrompt := b.router.BuildSystemPrompt(domain, result)
 			if lensPrompt != "" {
 				systemPrompt = lensPrompt
+			}
+			lensName := result.PrimaryLensID
+			if l := b.router.registry.GetLens(result.PrimaryLensID); l != nil {
+				lensName = l.Name
+			}
+			lens = &LensInfo{
+				ID:     result.PrimaryLensID,
+				Name:   lensName,
+				Reason: result.Reason,
 			}
 		}
 	}
@@ -178,7 +203,11 @@ func (b *ButlerAgent) answerWithAgent(agent Agent, query string, domain string) 
 		{Role: "user", Content: fmt.Sprintf("参考数据：\n%s\n\n用户问题：%s", contextText, query)},
 	}
 
-	return b.llm.Chat(messages)
+	answer, err := b.llm.Chat(messages)
+	if err != nil {
+		return nil, err
+	}
+	return &AgentResponse{Answer: answer, Lens: lens}, nil
 }
 
 // FinanceAgent

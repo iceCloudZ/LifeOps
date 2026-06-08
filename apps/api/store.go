@@ -267,6 +267,11 @@ func (s *Store) migrate() error {
 	// Migrate exercise records from health_records to movement_records
 	s.migrateExerciseRecords()
 
+	// Add lens columns to messages if missing
+	s.db.Exec(`ALTER TABLE messages ADD COLUMN lens_id TEXT DEFAULT ''`)
+	s.db.Exec(`ALTER TABLE messages ADD COLUMN lens_name TEXT DEFAULT ''`)
+	s.db.Exec(`ALTER TABLE messages ADD COLUMN lens_reason TEXT DEFAULT ''`)
+
 	return nil
 }
 

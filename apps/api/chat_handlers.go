@@ -122,10 +122,18 @@ func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request, conversatio
 	}
 
 	var answer string
+	var lensID, lensName, lensReason string
 	if s.butler != nil {
-		answer, err = s.butler.Answer(content)
+		resp, err := s.butler.Answer(content)
 		if err != nil {
 			answer = "AI回答失败: " + err.Error()
+		} else {
+			answer = resp.Answer
+			if resp.Lens != nil {
+				lensID = resp.Lens.ID
+				lensName = resp.Lens.Name
+				lensReason = resp.Lens.Reason
+			}
 		}
 	} else {
 		answer = "AI管家未配置。请在设置页面配置AI服务。"
@@ -136,6 +144,9 @@ func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request, conversatio
 		ConversationID: conversationID,
 		Role:           "assistant",
 		Content:        answer,
+		LensID:         lensID,
+		LensName:       lensName,
+		LensReason:     lensReason,
 	}
 	if err := s.store.CreateMessage(assistantMsg); err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "internal_error", "failed to save response")

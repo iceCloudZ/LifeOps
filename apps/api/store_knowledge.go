@@ -1119,6 +1119,9 @@ type Message struct {
 	Content        string  `json:"content"`
 	AgentUsed      *string `json:"agent_used"`
 	TokensUsed     int     `json:"tokens_used"`
+	LensID         string  `json:"lens_id"`
+	LensName       string  `json:"lens_name"`
+	LensReason     string  `json:"lens_reason"`
 	CreatedAt      string  `json:"created_at"`
 }
 
@@ -1126,16 +1129,17 @@ func (s *Store) CreateMessage(m *Message) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	_, err := s.db.Exec(
-		`INSERT INTO messages (id, conversation_id, role, content, agent_used, tokens_used, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO messages (id, conversation_id, role, content, agent_used, tokens_used, lens_id, lens_name, lens_reason, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID, m.ConversationID, m.Role, m.Content, m.AgentUsed, m.TokensUsed,
+		m.LensID, m.LensName, m.LensReason,
 		time.Now().UTC().Format(time.RFC3339),
 	)
 	return err
 }
 
 func (s *Store) ListMessages(conversationID string) ([]Message, error) {
-	query := `SELECT id, conversation_id, role, content, agent_used, tokens_used, created_at FROM messages`
+	query := `SELECT id, conversation_id, role, content, agent_used, tokens_used, lens_id, lens_name, lens_reason, created_at FROM messages`
 	var args []interface{}
 
 	if conversationID != "" {
@@ -1153,7 +1157,7 @@ func (s *Store) ListMessages(conversationID string) ([]Message, error) {
 	var messages []Message
 	for rows.Next() {
 		var m Message
-		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Role, &m.Content, &m.AgentUsed, &m.TokensUsed, &m.CreatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Role, &m.Content, &m.AgentUsed, &m.TokensUsed, &m.LensID, &m.LensName, &m.LensReason, &m.CreatedAt); err != nil {
 			return nil, err
 		}
 		messages = append(messages, m)
@@ -1164,8 +1168,8 @@ func (s *Store) ListMessages(conversationID string) ([]Message, error) {
 func (s *Store) GetMessage(id string) (*Message, error) {
 	var m Message
 	err := s.db.QueryRow(
-		`SELECT id, conversation_id, role, content, agent_used, tokens_used, created_at FROM messages WHERE id = ?`, id,
-	).Scan(&m.ID, &m.ConversationID, &m.Role, &m.Content, &m.AgentUsed, &m.TokensUsed, &m.CreatedAt)
+		`SELECT id, conversation_id, role, content, agent_used, tokens_used, lens_id, lens_name, lens_reason, created_at FROM messages WHERE id = ?`, id,
+	).Scan(&m.ID, &m.ConversationID, &m.Role, &m.Content, &m.AgentUsed, &m.TokensUsed, &m.LensID, &m.LensName, &m.LensReason, &m.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
