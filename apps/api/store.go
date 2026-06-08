@@ -158,6 +158,22 @@ func (s *Store) migrate() error {
 			summary    TEXT NOT NULL DEFAULT '',
 			updated_at DATETIME NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS work_profiles (
+			id                TEXT PRIMARY KEY,
+			member_id         TEXT NOT NULL UNIQUE,
+			employment_status TEXT DEFAULT '',
+			company           TEXT DEFAULT '',
+			position          TEXT DEFAULT '',
+			industry          TEXT DEFAULT '',
+			work_location     TEXT DEFAULT '',
+			income_range      TEXT DEFAULT '',
+			work_schedule     TEXT DEFAULT '',
+			commute_minutes   INTEGER DEFAULT 0,
+			started_at        TEXT DEFAULT '',
+			note              TEXT DEFAULT '',
+			updated_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (member_id) REFERENCES family_members(id)
+		)`,
 		`CREATE TABLE IF NOT EXISTS work_records (
 			id         TEXT PRIMARY KEY,
 			member_id  TEXT NOT NULL,

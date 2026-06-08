@@ -375,6 +375,11 @@ func (s *Server) handleDomainRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleWorkStatusByMember(w, r, memberID)
 	case path == "/api/work/status":
 		s.handleWorkStatuses(w, r)
+	case strings.HasPrefix(path, "/api/work/profiles/"):
+		memberID := strings.TrimPrefix(path, "/api/work/profiles/")
+		s.handleWorkProfileByMember(w, r, memberID)
+	case path == "/api/work/profiles":
+		s.handleWorkProfiles(w, r)
 	case strings.HasPrefix(path, "/api/work/records/"):
 		id := strings.TrimPrefix(path, "/api/work/records/")
 		s.handleWorkRecordByID(w, r, id)
@@ -642,6 +647,52 @@ func (s *Server) handleWorkStatusByMember(w http.ResponseWriter, r *http.Request
 	status, _ := s.store.GetWorkStatus(memberID)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(status)
+}
+
+func (s *Server) handleWorkProfiles(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	profiles, _ := s.store.ListWorkProfiles()
+	if profiles == nil {
+		profiles = []WorkProfile{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(profiles)
+}
+
+func (s *Server) handleWorkProfileByMember(w http.ResponseWriter, r *http.Request, memberID string) {
+	switch r.Method {
+	case http.MethodGet:
+		profile, _ := s.store.GetWorkProfile(memberID)
+		if profile == nil {
+			profile = &WorkProfile{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(profile)
+	case http.MethodPut:
+		var req WorkProfile
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSONError(w, http.StatusBadRequest, "invalid_request", "invalid json")
+			return
+		}
+		if err := s.store.UpdateWorkProfile(memberID, &req); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "internal_error", err.Error())
+			return
+		}
+		profile, _ := s.store.GetWorkProfile(memberID)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(profile)
+	case http.MethodDelete:
+		if err := s.store.DeleteWorkProfile(memberID); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "internal_error", err.Error())
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
 }
 
 func (s *Server) handleWorkRecords(w http.ResponseWriter, r *http.Request) {

@@ -320,14 +320,51 @@ func (a *WorkAgent) SystemPrompt() string {
 func (a *WorkAgent) RetrieveContext(query string, memberID string) (*AgentContext, error) {
 	ctx := &AgentContext{}
 
-	statuses, err := a.store.ListWorkStatuses()
+	profiles, err := a.store.ListWorkProfiles()
 	if err != nil {
 		return nil, err
 	}
 	var statusParts []string
-	for _, s := range statuses {
-		statusParts = append(statusParts, fmt.Sprintf("[%s] %s", s.MemberID, s.Summary))
+	for _, p := range profiles {
+		parts := []string{fmt.Sprintf("[%s]", p.MemberID)}
+		if p.EmploymentStatus != "" {
+			parts = append(parts, p.EmploymentStatus)
+		}
+		if p.Company != "" {
+			parts = append(parts, p.Company)
+		}
+		if p.Position != "" {
+			parts = append(parts, p.Position)
+		}
+		if p.Industry != "" {
+			parts = append(parts, p.Industry)
+		}
+		if p.WorkLocation != "" {
+			parts = append(parts, p.WorkLocation)
+		}
+		if p.IncomeRange != "" {
+			parts = append(parts, "收入:"+p.IncomeRange)
+		}
+		if p.WorkSchedule != "" {
+			parts = append(parts, p.WorkSchedule)
+		}
+		if p.CommuteMinutes > 0 {
+			parts = append(parts, fmt.Sprintf("通勤%d分钟", p.CommuteMinutes))
+		}
+		if p.StartedAt != "" {
+			parts = append(parts, "入职:"+p.StartedAt)
+		}
+		statusParts = append(statusParts, strings.Join(parts, " "))
 	}
+
+	statuses, err := a.store.ListWorkStatuses()
+	if err != nil {
+		return nil, err
+	}
+	for _, s := range statuses {
+		statusParts = append(statusParts, fmt.Sprintf("[%s] 状态概要: %s", s.MemberID, s.Summary))
+	}
+
 	ctx.Status = strings.Join(statusParts, "\n")
 
 	records, err := a.store.ListWorkRecords("", "")

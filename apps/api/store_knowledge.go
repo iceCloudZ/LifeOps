@@ -859,6 +859,102 @@ func (s *Store) ListWorkStatuses() ([]WorkStatus, error) {
 	return statuses, rows.Err()
 }
 
+// WorkProfile
+
+type WorkProfile struct {
+	ID               string `json:"id"`
+	MemberID         string `json:"member_id"`
+	EmploymentStatus string `json:"employment_status"`
+	Company          string `json:"company"`
+	Position         string `json:"position"`
+	Industry         string `json:"industry"`
+	WorkLocation     string `json:"work_location"`
+	IncomeRange      string `json:"income_range"`
+	WorkSchedule     string `json:"work_schedule"`
+	CommuteMinutes   int    `json:"commute_minutes"`
+	StartedAt        string `json:"started_at"`
+	Note             string `json:"note"`
+	UpdatedAt        string `json:"updated_at"`
+}
+
+func (s *Store) GetWorkProfile(memberID string) (*WorkProfile, error) {
+	var p WorkProfile
+	err := s.db.QueryRow(
+		`SELECT id, member_id, employment_status, company, position, industry,
+		        work_location, income_range, work_schedule, commute_minutes,
+		        started_at, note, updated_at
+		 FROM work_profiles WHERE member_id = ?`, memberID,
+	).Scan(&p.ID, &p.MemberID, &p.EmploymentStatus, &p.Company, &p.Position, &p.Industry,
+		&p.WorkLocation, &p.IncomeRange, &p.WorkSchedule, &p.CommuteMinutes,
+		&p.StartedAt, &p.Note, &p.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+func (s *Store) UpdateWorkProfile(memberID string, p *WorkProfile) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := s.db.Exec(
+		`INSERT INTO work_profiles (id, member_id, employment_status, company, position, industry,
+		          work_location, income_range, work_schedule, commute_minutes,
+		          started_at, note, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(member_id) DO UPDATE SET
+		   employment_status = excluded.employment_status,
+		   company = excluded.company,
+		   position = excluded.position,
+		   industry = excluded.industry,
+		   work_location = excluded.work_location,
+		   income_range = excluded.income_range,
+		   work_schedule = excluded.work_schedule,
+		   commute_minutes = excluded.commute_minutes,
+		   started_at = excluded.started_at,
+		   note = excluded.note,
+		   updated_at = excluded.updated_at`,
+		newID(), memberID, p.EmploymentStatus, p.Company, p.Position, p.Industry,
+		p.WorkLocation, p.IncomeRange, p.WorkSchedule, p.CommuteMinutes,
+		p.StartedAt, p.Note, now,
+	)
+	return err
+}
+
+func (s *Store) DeleteWorkProfile(memberID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.Exec(`DELETE FROM work_profiles WHERE member_id = ?`, memberID)
+	return err
+}
+
+func (s *Store) ListWorkProfiles() ([]WorkProfile, error) {
+	rows, err := s.db.Query(
+		`SELECT id, member_id, employment_status, company, position, industry,
+		        work_location, income_range, work_schedule, commute_minutes,
+		        started_at, note, updated_at
+		 FROM work_profiles ORDER BY updated_at DESC`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var profiles []WorkProfile
+	for rows.Next() {
+		var p WorkProfile
+		if err := rows.Scan(&p.ID, &p.MemberID, &p.EmploymentStatus, &p.Company, &p.Position, &p.Industry,
+			&p.WorkLocation, &p.IncomeRange, &p.WorkSchedule, &p.CommuteMinutes,
+			&p.StartedAt, &p.Note, &p.UpdatedAt); err != nil {
+			return nil, err
+		}
+		profiles = append(profiles, p)
+	}
+	return profiles, rows.Err()
+}
+
 // Conversation
 
 type Conversation struct {
