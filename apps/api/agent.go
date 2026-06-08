@@ -25,25 +25,28 @@ type ButlerAgent struct {
 	store  *Store
 	llm    *LLMClient
 	agents map[string]Agent
+	router *SkillRouter
 }
 
-func NewButlerAgent(store *Store, llm *LLMClient) *ButlerAgent {
+func NewButlerAgent(store *Store, llm *LLMClient, router *SkillRouter) *ButlerAgent {
 	b := &ButlerAgent{
 		store:  store,
 		llm:    llm,
 		agents: make(map[string]Agent),
+		router: router,
 	}
-	b.agents["finance"] = &FinanceAgent{store: store, llm: llm}
-	b.agents["health"] = &HealthAgent{store: store, llm: llm}
+	b.agents["finance"] = &FinanceAgent{store: store, llm: llm, router: router}
+	b.agents["health"] = &HealthAgent{store: store, llm: llm, router: router}
 	b.agents["work"] = &WorkAgent{store: store, llm: llm}
-	b.agents["family"] = &FamilyAgent{store: store, llm: llm}
+	b.agents["family"] = &FamilyAgent{store: store, llm: llm, router: router}
+	b.agents["movement"] = &MovementAgent{store: store, llm: llm, router: router}
 	return b
 }
 
 func (b *ButlerAgent) Name() string   { return "butler" }
 func (b *ButlerAgent) Domain() string  { return "all" }
 func (b *ButlerAgent) SystemPrompt() string {
-	return "你是LifeOps家庭管家。你的职责是：1.分析用户问题涉及哪些领域（finance/health/work/family）2.如果问题只涉及一个领域，直接给出简洁专业的回答 3.如果涉及多个领域，综合分析后给出整体回答。回答要求：温暖简洁的中文，基于提供的数据回答，不要编造不存在的数据，如果数据不足以回答请明确说明。输出格式：纯文本，不要用markdown。"
+	return "你是LifeOps家庭管家。你的职责是：1.分析用户问题涉及哪些领域（finance/health/work/family/movement）2.如果问题只涉及一个领域，直接给出简洁专业的回答 3.如果涉及多个领域，综合分析后给出整体回答。回答要求：温暖简洁的中文，基于提供的数据回答，不要编造不存在的数据，如果数据不足以回答请明确说明。输出格式：纯文本，不要用markdown。"
 }
 
 func (b *ButlerAgent) RetrieveContext(query string, memberID string) (*AgentContext, error) {
@@ -51,7 +54,7 @@ func (b *ButlerAgent) RetrieveContext(query string, memberID string) (*AgentCont
 }
 
 func (b *ButlerAgent) AnalyzeAndRoute(query string) ([]string, error) {
-	routingPrompt := "分析以下问题涉及哪些领域，只返回领域名称用逗号分隔（finance,health,work,family），不要返回其他内容。\n问题：" + query
+	routingPrompt := "分析以下问题涉及哪些领域，只返回领域名称用逗号分隔（finance,health,work,family,movement），不要返回其他内容。\n问题：" + query
 
 	resp, err := b.llm.Chat([]ChatMessage{
 		{Role: "user", Content: routingPrompt},
@@ -80,7 +83,7 @@ func (b *ButlerAgent) AnalyzeAndRoute(query string) ([]string, error) {
 }
 
 func allDomains() []string {
-	return []string{"finance", "health", "work", "family"}
+	return []string{"finance", "health", "work", "family", "movement"}
 }
 
 func (b *ButlerAgent) Answer(query string) (string, error) {
@@ -91,7 +94,7 @@ func (b *ButlerAgent) Answer(query string) (string, error) {
 
 	if len(domains) == 1 {
 		agent := b.agents[domains[0]]
-		return b.answerWithAgent(agent, query)
+		return b.answerWithAgent(agent, query, domains[0])
 	}
 
 	type agentResult struct {
@@ -108,7 +111,7 @@ func (b *ButlerAgent) Answer(query string) (string, error) {
 		go func(idx int, d string) {
 			defer wg.Done()
 			agent := b.agents[d]
-			answer, err := b.answerWithAgent(agent, query)
+			answer, err := b.answerWithAgent(agent, query, d)
 			results[idx] = agentResult{domain: d, answer: answer, err: err}
 		}(i, domain)
 	}
@@ -136,10 +139,22 @@ func (b *ButlerAgent) Answer(query string) (string, error) {
 	return finalAnswer, nil
 }
 
-func (b *ButlerAgent) answerWithAgent(agent Agent, query string) (string, error) {
+func (b *ButlerAgent) answerWithAgent(agent Agent, query string, domain string) (string, error) {
 	ctx, err := agent.RetrieveContext(query, "")
 	if err != nil {
 		return "", fmt.Errorf("retrieve context for %s: %w", agent.Name(), err)
+	}
+
+	systemPrompt := agent.SystemPrompt()
+
+	if b.router != nil {
+		result, _ := b.router.Route(query, domain)
+		if result != nil {
+			lensPrompt := b.router.BuildSystemPrompt(domain, result)
+			if lensPrompt != "" {
+				systemPrompt = lensPrompt
+			}
+		}
 	}
 
 	var contextParts []string
@@ -159,7 +174,7 @@ func (b *ButlerAgent) answerWithAgent(agent Agent, query string) (string, error)
 	}
 
 	messages := []ChatMessage{
-		{Role: "system", Content: agent.SystemPrompt()},
+		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: fmt.Sprintf("参考数据：\n%s\n\n用户问题：%s", contextText, query)},
 	}
 
@@ -169,13 +184,17 @@ func (b *ButlerAgent) answerWithAgent(agent Agent, query string) (string, error)
 // FinanceAgent
 
 type FinanceAgent struct {
-	store *Store
-	llm   *LLMClient
+	store  *Store
+	llm    *LLMClient
+	router *SkillRouter
 }
 
-func (a *FinanceAgent) Name() string   { return "finance" }
-func (a *FinanceAgent) Domain() string  { return "finance" }
+func (a *FinanceAgent) Name() string  { return "finance" }
+func (a *FinanceAgent) Domain() string { return "finance" }
 func (a *FinanceAgent) SystemPrompt() string {
+	if a.router != nil {
+		return a.router.fallbackPrompt("finance")
+	}
 	return "你是家庭财务顾问。基于提供的家庭财务数据，分析收支情况、资产负债、给出理财建议。要求：用中文回答，数字要准确，指出重要趋势。"
 }
 
@@ -226,13 +245,17 @@ func (a *FinanceAgent) RetrieveContext(query string, memberID string) (*AgentCon
 // HealthAgent
 
 type HealthAgent struct {
-	store *Store
-	llm   *LLMClient
+	store  *Store
+	llm    *LLMClient
+	router *SkillRouter
 }
 
-func (a *HealthAgent) Name() string   { return "health" }
-func (a *HealthAgent) Domain() string  { return "health" }
+func (a *HealthAgent) Name() string  { return "health" }
+func (a *HealthAgent) Domain() string { return "health" }
 func (a *HealthAgent) SystemPrompt() string {
+	if a.router != nil {
+		return a.router.fallbackPrompt("health")
+	}
 	return "你是家庭健康助手。基于提供的家庭健康数据，分析健康状况、用药情况、运动习惯。要求：用中文回答，关注异常指标，给出温和的健康建议。不要给出医疗诊断。"
 }
 
@@ -288,8 +311,8 @@ type WorkAgent struct {
 	llm   *LLMClient
 }
 
-func (a *WorkAgent) Name() string   { return "work" }
-func (a *WorkAgent) Domain() string  { return "work" }
+func (a *WorkAgent) Name() string  { return "work" }
+func (a *WorkAgent) Domain() string { return "work" }
 func (a *WorkAgent) SystemPrompt() string {
 	return "你是职业规划助手。基于提供的工作数据，分析项目进度、重要节点、工作压力。要求：用中文回答，关注即将到期的deadline，给出时间管理建议。"
 }
@@ -336,13 +359,17 @@ func (a *WorkAgent) RetrieveContext(query string, memberID string) (*AgentContex
 // FamilyAgent
 
 type FamilyAgent struct {
-	store *Store
-	llm   *LLMClient
+	store  *Store
+	llm    *LLMClient
+	router *SkillRouter
 }
 
-func (a *FamilyAgent) Name() string   { return "family" }
-func (a *FamilyAgent) Domain() string  { return "family" }
+func (a *FamilyAgent) Name() string  { return "family" }
+func (a *FamilyAgent) Domain() string { return "family" }
 func (a *FamilyAgent) SystemPrompt() string {
+	if a.router != nil {
+		return a.router.fallbackPrompt("family")
+	}
 	return "你是家庭事务管家。基于提供的家庭事务数据，分析日程安排、家务分工、育儿安排。要求：用中文回答，关注待办事项，提醒重要日程。"
 }
 
@@ -373,6 +400,60 @@ func (a *FamilyAgent) RetrieveContext(query string, memberID string) (*AgentCont
 	}
 
 	notes, err := a.store.ListKnowledgeNotes("family", "")
+	if err != nil {
+		return nil, err
+	}
+	for _, n := range notes {
+		ctx.Notes = append(ctx.Notes, fmt.Sprintf("[%s] %s: %s", derefStr(n.MemberID), n.Title, n.Content))
+	}
+
+	return ctx, nil
+}
+
+// MovementAgent
+
+type MovementAgent struct {
+	store  *Store
+	llm    *LLMClient
+	router *SkillRouter
+}
+
+func (a *MovementAgent) Name() string  { return "movement" }
+func (a *MovementAgent) Domain() string { return "movement" }
+func (a *MovementAgent) SystemPrompt() string {
+	if a.router != nil {
+		return a.router.fallbackPrompt("movement")
+	}
+	return "你是运动指导助手。基于提供的运动数据，分析运动习惯、体能变化。要求：用中文回答，给出保守渐进的运动建议。关注安全和持续性。"
+}
+
+func (a *MovementAgent) RetrieveContext(query string, memberID string) (*AgentContext, error) {
+	ctx := &AgentContext{}
+
+	records, err := a.store.ListHealthRecords("", "exercise")
+	if err != nil {
+		return nil, err
+	}
+	if len(records) > 0 {
+		var parts []string
+		for i, r := range records {
+			if i >= 20 {
+				break
+			}
+			line := fmt.Sprintf("[%s] %s", r.RecordDate, r.MemberID)
+			if r.Metric != nil && r.Value != nil {
+				line += fmt.Sprintf(" %s=%s", *r.Metric, *r.Value)
+			}
+			if r.Note != "" {
+				line += " " + r.Note
+			}
+			parts = append(parts, line)
+		}
+		ctx.RecentRecords = parts
+		ctx.Status = fmt.Sprintf("运动记录: %d 条", len(records))
+	}
+
+	notes, err := a.store.ListKnowledgeNotes("movement", "")
 	if err != nil {
 		return nil, err
 	}

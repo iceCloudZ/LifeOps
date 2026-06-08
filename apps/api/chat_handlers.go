@@ -390,6 +390,13 @@ func (s *Server) handleDomainRoutes(w http.ResponseWriter, r *http.Request) {
 	case path == "/api/family/records":
 		s.handleFamilyRecords(w, r)
 
+	// Movement (reuses health records with type=exercise)
+	case strings.HasPrefix(path, "/api/movement/records/"):
+		id := strings.TrimPrefix(path, "/api/movement/records/")
+		s.handleHealthRecordByID(w, r, id)
+	case path == "/api/movement/records":
+		s.handleMovementRecords(w, r)
+
 	default:
 		w.WriteHeader(http.StatusNotFound)
 	}
@@ -782,6 +789,48 @@ func (s *Server) handleFamilyRecordByID(w http.ResponseWriter, r *http.Request, 
 	case http.MethodDelete:
 		s.store.DeleteFamilyRecord(id)
 		w.WriteHeader(http.StatusNoContent)
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+// ---- Movement ----
+
+func (s *Server) handleMovementRecords(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		memberID := r.URL.Query().Get("member_id")
+		records, _ := s.store.ListHealthRecords(memberID, "exercise")
+		if records == nil {
+			records = []HealthRecord{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(records)
+	case http.MethodPost:
+		var req struct {
+			MemberID   string  `json:"member_id"`
+			Metric     *string `json:"metric"`
+			Value      *string `json:"value"`
+			Unit       *string `json:"unit"`
+			Note       string  `json:"note"`
+			RecordDate string  `json:"record_date"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSONError(w, http.StatusBadRequest, "invalid_request", "invalid json")
+			return
+		}
+		rec := &HealthRecord{
+			ID: newID(), MemberID: req.MemberID, Type: "exercise",
+			Metric: req.Metric, Value: req.Value, Unit: req.Unit,
+			Note: req.Note, RecordDate: req.RecordDate,
+		}
+		if err := s.store.CreateHealthRecord(rec); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "internal_error", err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(rec)
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}

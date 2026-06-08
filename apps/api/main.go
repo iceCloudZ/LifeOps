@@ -53,7 +53,20 @@ func main() {
 			Model:     model,
 			MaxTokens: 2048,
 		})
-		butler = NewButlerAgent(store, llm)
+
+		var router *SkillRouter
+		skillsPath := os.Getenv("LIFESTYLE_SKILLS_PATH")
+		if skillsPath != "" {
+			reg, err := NewSkillRegistry(skillsPath)
+			if err != nil {
+				log.Printf("WARNING: failed to load lifestyle skills from %s: %v", skillsPath, err)
+			} else if reg.Available() {
+				router = NewSkillRouter(reg, llm)
+				log.Printf("Lifestyle skills loaded from %s (%d lenses, domains: %v)", skillsPath, len(reg.ListLenses("")), reg.Domains())
+			}
+		}
+
+		butler = NewButlerAgent(store, llm, router)
 		log.Printf("AI butler initialized (model: %s, endpoint: %s)", model, endpoint)
 	} else {
 		log.Printf("WARNING: AI not configured. Set LIFEOPS_AI_ENDPOINT and LIFEOPS_AI_API_KEY or configure via /api/config/ai")

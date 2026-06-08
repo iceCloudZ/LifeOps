@@ -58,6 +58,7 @@ func NewServer(token string, store *Store, butler *ButlerAgent) *Server {
 	server.mux.HandleFunc("/api/health/", server.handleDomainRoutes)
 	server.mux.HandleFunc("/api/work/", server.handleDomainRoutes)
 	server.mux.HandleFunc("/api/family/", server.handleDomainRoutes)
+	server.mux.HandleFunc("/api/movement/", server.handleDomainRoutes)
 	server.mux.HandleFunc("/api/notes", server.handleNotesRoute)
 	server.mux.HandleFunc("/api/chat/conversations", server.handleConversations)
 	server.mux.HandleFunc("/api/chat/conversations/", server.handleConversationRoutes)
