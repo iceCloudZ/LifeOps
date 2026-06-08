@@ -12,6 +12,7 @@
         <li><router-link to="/chat" @click="menuOpen = false">AI 对话</router-link></li>
         <li><router-link to="/finance" @click="menuOpen = false">财务</router-link></li>
         <li><router-link to="/health" @click="menuOpen = false">健康</router-link></li>
+        <li><router-link to="/movement" @click="menuOpen = false">运动</router-link></li>
         <li><router-link to="/work" @click="menuOpen = false">工作</router-link></li>
         <li><router-link to="/family" @click="menuOpen = false">家庭</router-link></li>
         <li><router-link to="/notes" @click="menuOpen = false">笔记</router-link></li>

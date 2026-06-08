@@ -3,6 +3,7 @@ import Dashboard from './views/Dashboard.vue'
 import Chat from './views/Chat.vue'
 import Finance from './views/Finance.vue'
 import Health from './views/Health.vue'
+import Movement from './views/Movement.vue'
 import Work from './views/Work.vue'
 import Family from './views/Family.vue'
 import Notes from './views/Notes.vue'
@@ -14,6 +15,7 @@ const routes = [
   { path: '/chat', name: 'Chat', component: Chat },
   { path: '/finance', name: 'Finance', component: Finance },
   { path: '/health', name: 'Health', component: Health },
+  { path: '/movement', name: 'Movement', component: Movement },
   { path: '/work', name: 'Work', component: Work },
   { path: '/family', name: 'Family', component: Family },
   { path: '/notes', name: 'Notes', component: Notes },
