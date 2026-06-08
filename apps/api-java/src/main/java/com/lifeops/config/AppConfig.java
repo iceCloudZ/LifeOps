@@ -1,0 +1,53 @@
+package com.lifeops.config;
+
+import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.openai.OpenAiChatModel;
+import com.lifeops.mapper.AIConfigMapper;
+import com.lifeops.entity.AIConfig;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+import java.time.Duration;
+
+@Configuration
+public class AppConfig {
+
+    @Value("${c2fe4j.llm.base-url:}")
+    private String baseUrl;
+
+    @Value("${c2fe4j.llm.api-key:}")
+    private String apiKey;
+
+    @Value("${c2fe4j.llm.model:deepseek-chat}")
+    private String model;
+
+    @Bean
+    @ConditionalOnMissingBean(ChatModel.class)
+    public ChatModel chatModel(AIConfigMapper aiConfigMapper) {
+        String endpoint = baseUrl;
+        String key = apiKey;
+        String m = model;
+
+        try {
+            AIConfig dbConfig = aiConfigMapper.selectOne(
+                new LambdaQueryWrapper<AIConfig>().eq(AIConfig::getId, 1)
+            );
+            if (dbConfig != null) {
+                if (endpoint == null || endpoint.isEmpty()) endpoint = dbConfig.getEndpoint();
+                if (key == null || key.isEmpty()) key = dbConfig.getApiKey();
+                if (m.equals("deepseek-chat") && dbConfig.getModel() != null) m = dbConfig.getModel();
+            }
+        } catch (Exception ignored) {}
+
+        return OpenAiChatModel.builder()
+                .baseUrl(endpoint)
+                .apiKey(key)
+                .modelName(m)
+                .timeout(Duration.ofSeconds(30))
+                .maxRetries(3)
+                .build();
+    }
+}

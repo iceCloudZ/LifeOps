@@ -1,0 +1,34 @@
+server:
+  port: 8080
+
+spring:
+  datasource:
+    url: jdbc:sqlite:${LIFEOPS_DB_PATH:lifeops.db}
+    driver-class-name: org.sqlite.JDBC
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      id-type: assign_id
+      table-prefix: ""
+
+lifeops:
+  token: ${LIFEOPS_WEBHOOK_TOKEN:dev-token}
+
+c2fe4j:
+  llm:
+    base-url: ${LIFEOPS_AI_ENDPOINT:https://api.deepseek.com}
+    api-key: ${LIFEOPS_AI_API_KEY:}
+    model: ${LIFEOPS_AI_MODEL:deepseek-v4-pro}
+  agent:
+    max-steps: 10
+    system-prompt: "你是LifeOps家庭管家。基于提供的家庭数据回答问题。温暖简洁的中文，不要编造不存在的数据，数据不足请明确说明。纯文本输出。"
+  observability:
+    enabled: true
+    trace-retention: 1000
