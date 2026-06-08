@@ -11,7 +11,7 @@
 - Phase 1 已完成：独立 public GitHub 仓库、schema、registry、CI、README 和贡献约束已经建立。
 - Phase 2 已完成第一版：1 个 `life-butler` 入口 skill，4 个领域共 12 个 lens。
 - Phase 3 已达到第一阶段覆盖：`life-butler` 有 5 条首次使用 eval，每个 lens 有 3 条 synthetic eval，共 41 条。
-- Phase 4 进行中：已有 metadata 校验、静态测试、单个/批量 eval prompt builder 和 scoreboard builder；尚未发布真实 LLM 评分结果。
+- Phase 4 进行中：已有 metadata 校验、静态测试、单个/批量 eval prompt builder、baseline / with-skill / blind judge 三段式 runner 和 scoreboard builder；尚未发布真实 LLM 评分结果。
 - Phase 5 尚未开始：LifeOps 还没有接入外部 `registry.json` 和 lens router。
 - Weekly Review 暂不进入近期开发范围，只有在存在足够历史数据或用户主动要求复盘时才考虑。
 
