@@ -68,7 +68,18 @@ func NewServer(token string, store *Store, butler *ButlerAgent) *Server {
 	return server
 }
 
+func corsHeaders(w http.ResponseWriter) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-LifeOps-Token")
+}
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	corsHeaders(w)
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	if strings.HasPrefix(r.URL.Path, "/api/inbox/webhook") {
 		if r.Header.Get("X-LifeOps-Token") != s.token {
 			w.WriteHeader(http.StatusUnauthorized)
