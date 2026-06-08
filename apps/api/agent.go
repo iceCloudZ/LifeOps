@@ -205,7 +205,7 @@ func (a *FinanceAgent) RetrieveContext(query string, memberID string) (*AgentCon
 		return nil, err
 	}
 	for i, r := range records {
-		if i >= 10 {
+		if i >= 50 {
 			break
 		}
 		ctx.RecentRecords = append(ctx.RecentRecords,
@@ -254,7 +254,7 @@ func (a *HealthAgent) RetrieveContext(query string, memberID string) (*AgentCont
 		return nil, err
 	}
 	for i, r := range records {
-		if i >= 10 {
+		if i >= 50 {
 			break
 		}
 		parts := fmt.Sprintf("[%s] %s", r.RecordDate, r.MemberID)
@@ -312,7 +312,7 @@ func (a *WorkAgent) RetrieveContext(query string, memberID string) (*AgentContex
 		return nil, err
 	}
 	for i, r := range records {
-		if i >= 10 {
+		if i >= 50 {
 			break
 		}
 		line := fmt.Sprintf("[%s] %s %s: %s (优先级:%s, 状态:%s)", r.MemberID, r.Type, r.Title, r.Project, r.Priority, r.Status)
@@ -362,7 +362,7 @@ func (a *FamilyAgent) RetrieveContext(query string, memberID string) (*AgentCont
 		return nil, err
 	}
 	for i, r := range records {
-		if i >= 10 {
+		if i >= 50 {
 			break
 		}
 		line := fmt.Sprintf("[%s] %s: %s (状态:%s)", derefStr(r.MemberID), r.Type, r.Title, r.Status)
