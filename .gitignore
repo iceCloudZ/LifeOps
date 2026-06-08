@@ -7,3 +7,4 @@ dist/
 *.log
 *.tmp
 hs_err_pid*
+.superpowers/
