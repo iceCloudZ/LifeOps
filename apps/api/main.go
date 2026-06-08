@@ -26,8 +26,41 @@ func main() {
 	}
 	defer store.Close()
 
+	// Initialize LLM client from config or env vars
+	var butler *ButlerAgent
+	aiConfig, _ := store.GetAIConfig()
+
+	endpoint := os.Getenv("LIFEOPS_AI_ENDPOINT")
+	apiKey := os.Getenv("LIFEOPS_AI_API_KEY")
+	model := os.Getenv("LIFEOPS_AI_MODEL")
+
+	if aiConfig != nil {
+		if endpoint == "" {
+			endpoint = aiConfig.Endpoint
+		}
+		if apiKey == "" {
+			apiKey = aiConfig.APIKey
+		}
+		if model == "" {
+			model = aiConfig.Model
+		}
+	}
+
+	if endpoint != "" && apiKey != "" {
+		llm := NewLLMClient(LLMConfig{
+			Endpoint:  endpoint,
+			APIKey:    apiKey,
+			Model:     model,
+			MaxTokens: 2048,
+		})
+		butler = NewButlerAgent(store, llm)
+		log.Printf("AI butler initialized (model: %s, endpoint: %s)", model, endpoint)
+	} else {
+		log.Printf("WARNING: AI not configured. Set LIFEOPS_AI_ENDPOINT and LIFEOPS_AI_API_KEY or configure via /api/config/ai")
+	}
+
 	log.Printf("LifeOps API listening on %s (db: %s)", addr, dbPath)
-	if err := http.ListenAndServe(addr, NewServer(token, store)); err != nil {
+	if err := http.ListenAndServe(addr, NewServer(token, store, butler)); err != nil {
 		log.Fatal(err)
 	}
 }

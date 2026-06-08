@@ -30,17 +30,20 @@ type errorResponse struct {
 }
 
 type Server struct {
-	token string
-	mux   *http.ServeMux
-	store *Store
+	token  string
+	mux    *http.ServeMux
+	store  *Store
+	butler *ButlerAgent
 }
 
-func NewServer(token string, store *Store) *Server {
+func NewServer(token string, store *Store, butler *ButlerAgent) *Server {
 	server := &Server{
-		token: token,
-		mux:   http.NewServeMux(),
-		store: store,
+		token:  token,
+		mux:    http.NewServeMux(),
+		store:  store,
+		butler: butler,
 	}
+	// Existing routes
 	server.mux.HandleFunc("/api/inbox/webhook", server.handleWebhookInbox)
 	server.mux.HandleFunc("/api/drafts", server.handleListDrafts)
 	server.mux.HandleFunc("/api/drafts/", server.handleDraftRoutes)
@@ -48,6 +51,18 @@ func NewServer(token string, store *Store) *Server {
 	server.mux.HandleFunc("/api/events/", server.handleEntityRoutes)
 	server.mux.HandleFunc("/api/shopping-items/", server.handleEntityRoutes)
 	server.mux.HandleFunc("/api/notes/", server.handleEntityRoutes)
+	// New knowledge base routes
+	server.mux.HandleFunc("/api/members", server.handleMembers)
+	server.mux.HandleFunc("/api/members/", server.handleMemberByID)
+	server.mux.HandleFunc("/api/finance/", server.handleDomainRoutes)
+	server.mux.HandleFunc("/api/health/", server.handleDomainRoutes)
+	server.mux.HandleFunc("/api/work/", server.handleDomainRoutes)
+	server.mux.HandleFunc("/api/family/", server.handleDomainRoutes)
+	server.mux.HandleFunc("/api/notes", server.handleNotesRoute)
+	server.mux.HandleFunc("/api/chat/conversations", server.handleConversations)
+	server.mux.HandleFunc("/api/chat/conversations/", server.handleConversationRoutes)
+	server.mux.HandleFunc("/api/quick-entry", server.handleQuickEntryRoute)
+	server.mux.HandleFunc("/api/config/ai", server.handleAIConfigRoute)
 	return server
 }
 
