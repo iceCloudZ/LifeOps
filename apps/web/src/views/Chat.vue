@@ -310,7 +310,6 @@ export default {
               }
             } else if (eventName === 'confirm') {
               // informational confirm event (tool is about to execute)
-            }
             } else if (eventName === 'done') {
               // stream finished
             } else if (eventName === 'error') {

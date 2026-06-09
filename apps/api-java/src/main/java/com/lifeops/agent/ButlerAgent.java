@@ -3,6 +3,10 @@ package com.lifeops.agent;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifeops.agent.tool.ToolDispatcher;
+import com.lifeops.obs.AgentObservability;
+import com.lifeops.obs.Span;
+import com.lifeops.obs.TokenUsage;
+import com.lifeops.obs.Trace;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
@@ -25,6 +29,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.function.Consumer;
 
 @Slf4j
 @Component
@@ -120,7 +125,13 @@ public class ButlerAgent {
      * Phase 2: Execute with streaming and tool support.
      */
     public void executeWithTools(SseEmitter emitter, String query, RoutingResult routing,
-                                  String conversationId, String currentMemberId) {
+                                  String conversationId, String currentMemberId,
+                                  Consumer<String> onComplete) {
+        Trace trace = AgentObservability.startTrace(conversationId);
+        trace.addSpan(AgentObservability.endSpan(
+            AgentObservability.startSpan(trace.traceId(), "routing", "route:" + routing.domain()),
+            TokenUsage.empty()));
+
         // Build system message from lens content + domain prompts + base instructions
         StringBuilder systemBuilder = new StringBuilder();
         systemBuilder.append("You are Butler, a personal life management AI assistant.\n\n");
@@ -155,19 +166,21 @@ public class ButlerAgent {
         messages.add(UserMessage.from(query));
 
         List<ToolSpecification> toolSpecs = toolDispatcher.getToolSpecifications();
-        streamWithToolLoop(emitter, messages, toolSpecs);
+        streamWithToolLoop(emitter, messages, toolSpecs, onComplete, trace);
     }
 
     /**
      * Recursive streaming loop: stream tokens, handle tool calls, recurse.
      */
     private void streamWithToolLoop(SseEmitter emitter, List<ChatMessage> messages,
-                                     List<ToolSpecification> toolSpecs) {
+                                     List<ToolSpecification> toolSpecs,
+                                     Consumer<String> onComplete, Trace trace) {
         ChatRequest chatRequest = ChatRequest.builder()
                 .messages(messages)
                 .toolSpecifications(toolSpecs)
                 .build();
 
+        Span llmSpan = AgentObservability.startSpan(trace.traceId(), "llm_call", "execute");
         StringBuilder tokenBuffer = new StringBuilder();
         List<CompleteToolCall> toolCalls = new ArrayList<>();
         CountDownLatch latch = new CountDownLatch(1);
@@ -196,6 +209,15 @@ public class ButlerAgent {
             @Override
             public void onCompleteResponse(ChatResponse chatResponse) {
                 try {
+                    TokenUsage llmTokens = TokenUsage.empty();
+                    if (chatResponse.tokenUsage() != null) {
+                        llmTokens = TokenUsage.of(
+                            chatResponse.tokenUsage().inputTokenCount(),
+                            chatResponse.tokenUsage().outputTokenCount());
+                    }
+                    Span completedLlmSpan = AgentObservability.endSpan(llmSpan, llmTokens);
+                    trace.addSpan(completedLlmSpan);
+
                     if (!toolCalls.isEmpty()) {
                         // Build AiMessage with text and tool execution requests
                         String text = tokenBuffer.length() > 0 ? tokenBuffer.toString() : null;
@@ -214,7 +236,14 @@ public class ButlerAgent {
                             String arguments = request.arguments();
                             sendSse(emitter, "confirm", "Executing: " + toolName);
 
+                            Span toolSpan = AgentObservability.startSpan(trace.traceId(),
+                                completedLlmSpan.spanId(), "tool_execution", toolName);
+                            long toolStart = System.currentTimeMillis();
                             String result = toolDispatcher.execute(toolName, arguments);
+                            long toolLatency = System.currentTimeMillis() - toolStart;
+                            trace.addSpan(AgentObservability.endSpan(toolSpan, TokenUsage.empty()));
+                            log.debug("Tool {} executed in {}ms", toolName, toolLatency);
+
                             ToolExecutionResultMessage resultMsg = ToolExecutionResultMessage.from(request, result);
                             messages.add(resultMsg);
 
@@ -222,10 +251,13 @@ public class ButlerAgent {
                         }
 
                         // Recurse for next turn
-                        streamWithToolLoop(emitter, messages, toolSpecs);
+                        streamWithToolLoop(emitter, messages, toolSpecs, onComplete, trace);
                     } else {
                         // No tool calls — we're done
-                        sendSse(emitter, "done", tokenBuffer.toString());
+                        String finalText = tokenBuffer.toString();
+                        sendSse(emitter, "done", finalText);
+                        if (onComplete != null) onComplete.accept(finalText);
+                        AgentObservability.finishTrace(trace);
                         emitter.complete();
                     }
                 } catch (Exception e) {
@@ -241,6 +273,8 @@ public class ButlerAgent {
             @Override
             public void onError(Throwable error) {
                 log.error("Streaming error", error);
+                trace.addSpan(AgentObservability.endSpanWithError(llmSpan, error.getMessage()));
+                AgentObservability.finishTrace(trace);
                 try {
                     sendSse(emitter, "error", error.getMessage());
                     emitter.completeWithError(error);

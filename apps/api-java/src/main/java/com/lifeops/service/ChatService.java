@@ -132,7 +132,25 @@ public class ChatService {
         SseEmitter emitter = new SseEmitter(300_000L);
         emitter.onCompletion(() -> log.debug("SSE completed for {}", conversationId));
         emitter.onTimeout(() -> { log.warn("SSE timeout for {}", conversationId); emitter.complete(); });
-        butlerAgent.executeWithTools(emitter, content, routing, conversationId, currentMemberId);
+        butlerAgent.executeWithTools(emitter, content, routing, conversationId, currentMemberId,
+            finalText -> {
+                String now = OffsetDateTime.now().toString();
+                ChatMessage assistantMsg = new ChatMessage();
+                assistantMsg.setId(UUID.randomUUID().toString().replace("-", ""));
+                assistantMsg.setConversationId(conversationId);
+                assistantMsg.setRole("assistant");
+                assistantMsg.setContent(finalText);
+                assistantMsg.setLensName(routing.lens());
+                assistantMsg.setLensReason("");
+                assistantMsg.setTokensUsed(0);
+                assistantMsg.setCreatedAt(now);
+                messageMapper.insert(assistantMsg);
+                Conversation conv = conversationMapper.selectById(conversationId);
+                if (conv != null) {
+                    conv.setUpdatedAt(now);
+                    conversationMapper.updateById(conv);
+                }
+            });
         return emitter;
     }
 
