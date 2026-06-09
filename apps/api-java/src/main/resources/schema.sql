@@ -254,3 +254,44 @@ CREATE TABLE IF NOT EXISTS llm_usage (
     latency_ms        INTEGER NOT NULL DEFAULT 0,
     created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS t_chat_trace (
+    id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id        TEXT NOT NULL,
+    trace_no               INTEGER NOT NULL DEFAULT 1,
+    input_message          TEXT NOT NULL DEFAULT '',
+    output_message         TEXT DEFAULT '',
+    model                  TEXT DEFAULT '',
+    lens_id                TEXT DEFAULT '',
+    total_prompt_tokens    INTEGER NOT NULL DEFAULT 0,
+    total_completion_tokens INTEGER NOT NULL DEFAULT 0,
+    total_tokens           INTEGER NOT NULL DEFAULT 0,
+    total_cached_tokens    INTEGER NOT NULL DEFAULT 0,
+    cost_yuan              DECIMAL(10,6) NOT NULL DEFAULT 0,
+    total_latency_ms       INTEGER NOT NULL DEFAULT 0,
+    llm_call_count         INTEGER NOT NULL DEFAULT 0,
+    tool_call_count        INTEGER NOT NULL DEFAULT 0,
+    status                 TEXT NOT NULL DEFAULT 'running',
+    error_message          TEXT DEFAULT '',
+    metadata               TEXT DEFAULT '',
+    created_at             DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS t_chat_span (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    trace_id        INTEGER NOT NULL,
+    span_no         INTEGER NOT NULL DEFAULT 0,
+    span_type       TEXT NOT NULL DEFAULT '',
+    span_name       TEXT NOT NULL DEFAULT '',
+    parent_span_id  INTEGER,
+    input_data      TEXT DEFAULT '',
+    output_data     TEXT DEFAULT '',
+    prompt_tokens   INTEGER NOT NULL DEFAULT 0,
+    completion_tokens INTEGER NOT NULL DEFAULT 0,
+    cached_tokens   INTEGER NOT NULL DEFAULT 0,
+    latency_ms      INTEGER NOT NULL DEFAULT 0,
+    status          TEXT NOT NULL DEFAULT 'ok',
+    metadata        TEXT DEFAULT '',
+    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (trace_id) REFERENCES t_chat_trace(id)
+);

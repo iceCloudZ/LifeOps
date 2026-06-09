@@ -3,10 +3,8 @@ package com.lifeops.agent;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifeops.agent.tool.ToolDispatcher;
-import com.lifeops.obs.AgentObservability;
-import com.lifeops.obs.Span;
-import com.lifeops.obs.TokenUsage;
-import com.lifeops.obs.Trace;
+import com.lifeops.entity.ChatTrace;
+import com.lifeops.service.trace.ChatTraceService;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
@@ -21,6 +19,7 @@ import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.CompleteToolCall;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -29,6 +28,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 @Slf4j
@@ -42,6 +42,7 @@ public class ButlerAgent {
     private final LensRegistry lensRegistry;
     private final ToolDispatcher toolDispatcher;
     private final ObjectMapper objectMapper;
+    private final ChatTraceService traceService;
 
     @PostConstruct
     void init() {
@@ -49,6 +50,11 @@ public class ButlerAgent {
             lensRegistry.registerDomainPrompt(agent.domain(), agent.systemPrompt());
         }
         log.info("ButlerAgent initialized with {} domain agents", domainAgents.size());
+    }
+
+    @PreDestroy
+    void shutdown() {
+        traceService.markRunningTracesAsInterrupted();
     }
 
     /**
@@ -127,16 +133,25 @@ public class ButlerAgent {
     public void executeWithTools(SseEmitter emitter, String query, RoutingResult routing,
                                   String conversationId, String currentMemberId,
                                   Consumer<String> onComplete) {
-        Trace trace = AgentObservability.startTrace(conversationId);
-        trace.addSpan(AgentObservability.endSpan(
-            AgentObservability.startSpan(trace.traceId(), "routing", "route:" + routing.domain()),
-            TokenUsage.empty()));
+        long startMs = System.currentTimeMillis();
+        ChatTrace trace = traceService.createTrace(conversationId, query, "deepseek-v4-pro",
+            routing.lens());
+        if (trace == null) {
+            log.warn("Failed to create trace, continuing without tracing");
+        }
+        Long traceId = trace != null ? trace.getId() : null;
+        AtomicInteger spanNo = new AtomicInteger(0);
+
+        // Span: routing decision
+        if (traceId != null) {
+            traceService.addSpan(traceId, spanNo.incrementAndGet(), "routing", "route:" + routing.domain(),
+                null, query, routing.toString(), 0, 0, 0, 0, "ok", null);
+        }
 
         // Build system message from lens content + domain prompts + base instructions
         StringBuilder systemBuilder = new StringBuilder();
         systemBuilder.append("You are Butler, a personal life management AI assistant.\n\n");
 
-        // Add lens content if specified
         if (routing.lens() != null) {
             String lensContent = lensRegistry.getLensContent(routing.lens());
             if (lensContent != null) {
@@ -144,7 +159,6 @@ public class ButlerAgent {
             }
         }
 
-        // Add domain prompts
         for (String domain : routing.domain()) {
             String prompt = lensRegistry.getDomainPrompt(domain);
             if (prompt != null) {
@@ -166,21 +180,41 @@ public class ButlerAgent {
         messages.add(UserMessage.from(query));
 
         List<ToolSpecification> toolSpecs = toolDispatcher.getToolSpecifications();
-        streamWithToolLoop(emitter, messages, toolSpecs, onComplete, trace);
+
+        // Accumulators for final trace completion
+        AtomicInteger totalPrompt = new AtomicInteger(0);
+        AtomicInteger totalCompletion = new AtomicInteger(0);
+        AtomicInteger totalCached = new AtomicInteger(0);
+        AtomicInteger llmCount = new AtomicInteger(0);
+        AtomicInteger toolCount = new AtomicInteger(0);
+
+        streamWithToolLoop(emitter, messages, toolSpecs, onComplete,
+            traceId, spanNo, totalPrompt, totalCompletion, totalCached, llmCount, toolCount);
+
+        // Complete trace
+        if (traceId != null) {
+            int latencyMs = (int) (System.currentTimeMillis() - startMs);
+            traceService.completeTrace(traceId, null,
+                totalPrompt.get(), totalCompletion.get(),
+                totalPrompt.get() + totalCompletion.get(), totalCached.get(),
+                java.math.BigDecimal.ZERO, latencyMs,
+                llmCount.get(), toolCount.get());
+        }
     }
 
-    /**
-     * Recursive streaming loop: stream tokens, handle tool calls, recurse.
-     */
     private void streamWithToolLoop(SseEmitter emitter, List<ChatMessage> messages,
                                      List<ToolSpecification> toolSpecs,
-                                     Consumer<String> onComplete, Trace trace) {
+                                     Consumer<String> onComplete,
+                                     Long traceId, AtomicInteger spanNo,
+                                     AtomicInteger totalPrompt, AtomicInteger totalCompletion,
+                                     AtomicInteger totalCached,
+                                     AtomicInteger llmCount, AtomicInteger toolCount) {
         ChatRequest chatRequest = ChatRequest.builder()
                 .messages(messages)
                 .toolSpecifications(toolSpecs)
                 .build();
 
-        Span llmSpan = AgentObservability.startSpan(trace.traceId(), "llm_call", "execute");
+        int currentSpanNo = spanNo.incrementAndGet();
         StringBuilder tokenBuffer = new StringBuilder();
         List<CompleteToolCall> toolCalls = new ArrayList<>();
         CountDownLatch latch = new CountDownLatch(1);
@@ -209,17 +243,24 @@ public class ButlerAgent {
             @Override
             public void onCompleteResponse(ChatResponse chatResponse) {
                 try {
-                    TokenUsage llmTokens = TokenUsage.empty();
+                    llmCount.incrementAndGet();
+                    int promptTokens = 0, completionTokens = 0, cachedTokens = 0;
                     if (chatResponse.tokenUsage() != null) {
-                        llmTokens = TokenUsage.of(
-                            chatResponse.tokenUsage().inputTokenCount(),
-                            chatResponse.tokenUsage().outputTokenCount());
+                        promptTokens = chatResponse.tokenUsage().inputTokenCount();
+                        completionTokens = chatResponse.tokenUsage().outputTokenCount();
                     }
-                    Span completedLlmSpan = AgentObservability.endSpan(llmSpan, llmTokens);
-                    trace.addSpan(completedLlmSpan);
+                    totalPrompt.addAndGet(promptTokens);
+                    totalCompletion.addAndGet(completionTokens);
+                    totalCached.addAndGet(cachedTokens);
+
+                    // End this LLM call span
+                    if (traceId != null) {
+                        traceService.addSpan(traceId, currentSpanNo, "llm_call", "execute",
+                            null, null, tokenBuffer.length() > 0 ? tokenBuffer.toString() : null,
+                            promptTokens, completionTokens, cachedTokens, 0, "ok", null);
+                    }
 
                     if (!toolCalls.isEmpty()) {
-                        // Build AiMessage with text and tool execution requests
                         String text = tokenBuffer.length() > 0 ? tokenBuffer.toString() : null;
                         List<ToolExecutionRequest> requests = toolCalls.stream()
                                 .map(CompleteToolCall::toolExecutionRequest)
@@ -230,41 +271,43 @@ public class ButlerAgent {
                                 .build();
                         messages.add(aiMessage);
 
-                        // Execute each tool
                         for (ToolExecutionRequest request : requests) {
                             String toolName = request.name();
                             String arguments = request.arguments();
                             sendSse(emitter, "confirm", "Executing: " + toolName);
 
-                            Span toolSpan = AgentObservability.startSpan(trace.traceId(),
-                                completedLlmSpan.spanId(), "tool_execution", toolName);
+                            toolCount.incrementAndGet();
                             long toolStart = System.currentTimeMillis();
                             String result = toolDispatcher.execute(toolName, arguments);
-                            long toolLatency = System.currentTimeMillis() - toolStart;
-                            trace.addSpan(AgentObservability.endSpan(toolSpan, TokenUsage.empty()));
-                            log.debug("Tool {} executed in {}ms", toolName, toolLatency);
+                            int toolLatency = (int) (System.currentTimeMillis() - toolStart);
+
+                            if (traceId != null) {
+                                traceService.addSpan(traceId, spanNo.incrementAndGet(),
+                                    "tool_execution", toolName, (long) currentSpanNo,
+                                    truncate(arguments, 500), truncate(result, 2000),
+                                    0, 0, 0, toolLatency, "ok", null);
+                            }
 
                             ToolExecutionResultMessage resultMsg = ToolExecutionResultMessage.from(request, result);
                             messages.add(resultMsg);
-
                             sendSse(emitter, "tool_result", result);
                         }
 
-                        // Recurse for next turn
-                        streamWithToolLoop(emitter, messages, toolSpecs, onComplete, trace);
+                        streamWithToolLoop(emitter, messages, toolSpecs, onComplete,
+                            traceId, spanNo, totalPrompt, totalCompletion, totalCached,
+                            llmCount, toolCount);
                     } else {
-                        // No tool calls — we're done
                         String finalText = tokenBuffer.toString();
                         sendSse(emitter, "done", finalText);
                         if (onComplete != null) onComplete.accept(finalText);
-                        AgentObservability.finishTrace(trace);
                         emitter.complete();
                     }
                 } catch (Exception e) {
                     log.error("Error in onCompleteResponse", e);
-                    try {
-                        emitter.completeWithError(e);
-                    } catch (Exception ignored) {}
+                    if (traceId != null) {
+                        traceService.failTrace(traceId, e.getMessage());
+                    }
+                    try { emitter.completeWithError(e); } catch (Exception ignored) {}
                 } finally {
                     latch.countDown();
                 }
@@ -273,8 +316,11 @@ public class ButlerAgent {
             @Override
             public void onError(Throwable error) {
                 log.error("Streaming error", error);
-                trace.addSpan(AgentObservability.endSpanWithError(llmSpan, error.getMessage()));
-                AgentObservability.finishTrace(trace);
+                if (traceId != null) {
+                    traceService.addSpan(traceId, currentSpanNo, "llm_call", "execute",
+                        null, null, error.getMessage(), 0, 0, 0, 0, "error", null);
+                    traceService.failTrace(traceId, error.getMessage());
+                }
                 try {
                     sendSse(emitter, "error", error.getMessage());
                     emitter.completeWithError(error);
@@ -283,7 +329,6 @@ public class ButlerAgent {
             }
         });
 
-        // Block until the streaming response completes (handles async tool loop)
         try {
             latch.await();
         } catch (InterruptedException e) {
@@ -301,5 +346,10 @@ public class ButlerAgent {
         } catch (Exception e) {
             log.warn("Failed to send SSE event '{}': {}", eventName, e.getMessage());
         }
+    }
+
+    private static String truncate(String s, int maxLen) {
+        if (s == null) return null;
+        return s.length() <= maxLen ? s : s.substring(0, maxLen) + "...";
     }
 }
