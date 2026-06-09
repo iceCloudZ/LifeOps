@@ -188,6 +188,7 @@ export default {
         }
         this.$nextTick(() => this.scrollToBottom())
         if (!route.lens) {
+          this.routingResult = null
           await this.executeStream(route.lens, route.domain)
         }
       } catch {
@@ -244,12 +245,21 @@ export default {
         const decoder = new TextDecoder()
         let buffer = ''
         const toolNameMap = {
-          query_finance: '正在查询财务数据...',
-          query_health: '正在查询健康数据...',
-          query_calendar: '正在查询日程...',
-          query_tasks: '正在查询任务...',
-          query_shopping: '正在查询购物清单...',
-          web_search: '正在搜索网络...',
+          listMembers: '正在获取家庭成员...',
+          listFinanceSummary: '正在查询财务概览...',
+          queryFinanceRecords: '正在查询财务记录...',
+          listHealthProfiles: '正在查询健康数据...',
+          listMovementRecords: '正在查询运动记录...',
+          listWorkStatus: '正在查询工作状态...',
+          listFamilyRecords: '正在查询家庭事务...',
+          queryNotes: '正在查询笔记...',
+          webSearch: '正在搜索网络...',
+          createFinanceRecord: '正在记账...',
+          createHealthRecord: '正在记录健康数据...',
+          createMovementRecord: '正在记录运动...',
+          createWorkRecord: '正在添加工作任务...',
+          createFamilyRecord: '正在添加家庭事务...',
+          createNote: '正在保存笔记...',
         }
 
         while (true) {
@@ -273,30 +283,40 @@ export default {
             } else if (eventName === 'tool_start') {
               try {
                 const info = JSON.parse(eventData)
+                const tName = info.tool || info.name || eventData
                 this.streamingTools.push({
-                  name: info.tool || info.name || eventData,
-                  label: toolNameMap[info.tool || info.name] || ('正在执行 ' + (info.tool || info.name || '')),
+                  name: tName,
+                  label: toolNameMap[tName] || ('正在执行 ' + tName),
                 })
               } catch {
                 this.streamingTools.push({ name: eventData, label: '正在查询...' })
               }
               this.$nextTick(() => this.scrollToBottom())
             } else if (eventName === 'tool_result') {
-              // tool finished, could update the tool pill — leave as-is for now
-            } else if (eventName === 'confirm') {
               try {
-                const info = JSON.parse(eventData)
-                streamingConfirms.push({
-                  id: info.confirmation_id || info.id || 'cf-' + Date.now(),
-                  msgId: info.message_id || assistantMsgId,
-                  summary: info.summary || info.action || eventData,
-                  resolved: false,
-                })
+                const result = JSON.parse(eventData)
+                if (result.status === 'pending_confirmation') {
+                  streamingConfirms.push({
+                    id: 'cf-' + Date.now() + '-' + streamingConfirms.length,
+                    msgId: assistantMsgId,
+                    action: result.action,
+                    summary: result.summary,
+                    data: result.data,
+                    resolved: false,
+                  })
+                }
               } catch {
-                // ignore malformed confirm
+                // not JSON or not a confirmation, ignore
               }
+            } else if (eventName === 'confirm') {
+              // informational confirm event (tool is about to execute)
+            }
             } else if (eventName === 'done') {
               // stream finished
+            } else if (eventName === 'error') {
+              if (!this.streamingContent) {
+                this.streamingContent = '请求出错：' + eventData
+              }
             }
           }
         }
@@ -323,10 +343,17 @@ export default {
     },
     async resolveConfirm(confirm, action) {
       try {
-        await api.post(`/api/chat/conversations/${this.currentId}/confirm/${confirm.msgId}`, {
-          action: action,
-          data: {},
-        })
+        if (action === 'approve') {
+          await api.post(`/api/chat/conversations/${this.currentId}/confirm/${confirm.msgId}`, {
+            action: confirm.action,
+            data: confirm.data || {},
+          })
+        } else {
+          await api.post(`/api/chat/conversations/${this.currentId}/confirm/${confirm.msgId}`, {
+            action: 'cancel',
+            data: {},
+          })
+        }
         confirm.resolved = true
       } catch {
         confirm.resolved = true

@@ -31,9 +31,11 @@ public class AuthFilter extends OncePerRequestFilter {
 
         // Handle CORS preflight
         if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
+            setCorsHeaders(response);
             response.setStatus(HttpServletResponse.SC_OK);
             return;
         }
+        setCorsHeaders(response);
 
         // Webhook uses X-LifeOps-Token header only
         if (path.startsWith("/api/inbox/webhook")) {
@@ -63,5 +65,12 @@ public class AuthFilter extends OncePerRequestFilter {
         }
 
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+    }
+
+    private void setCorsHeaders(HttpServletResponse response) {
+        response.setHeader("Access-Control-Allow-Origin", "*");
+        response.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+        response.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, X-LifeOps-Token");
+        response.setHeader("Access-Control-Max-Age", "3600");
     }
 }
