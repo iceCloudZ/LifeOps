@@ -15,7 +15,7 @@ import java.util.List;
 
 @Component
 @RequiredArgsConstructor
-public class FamilyDomainAgent implements io.github.icecloudz.c2fe4j.agent.DomainAgent {
+public class FamilyDomainAgent implements DomainAgent {
 
     private final FamilyStatusMapper statusMapper;
     private final FamilyRecordMapper recordMapper;

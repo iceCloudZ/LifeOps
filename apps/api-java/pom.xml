@@ -51,9 +51,9 @@
         </dependency>
 
         <dependency>
-            <groupId>io.github.icecloudz</groupId>
-            <artifactId>c2fe4j-spring-boot-starter</artifactId>
-            <version>0.2.0-SNAPSHOT</version>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-open-ai</artifactId>
+            <version>1.16.0</version>
         </dependency>
     </dependencies>
 

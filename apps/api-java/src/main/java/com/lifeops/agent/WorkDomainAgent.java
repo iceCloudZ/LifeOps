@@ -17,7 +17,7 @@ import java.util.List;
 
 @Component
 @RequiredArgsConstructor
-public class WorkDomainAgent implements io.github.icecloudz.c2fe4j.agent.DomainAgent {
+public class WorkDomainAgent implements DomainAgent {
 
     private final WorkProfileMapper profileMapper;
     private final WorkStatusMapper statusMapper;

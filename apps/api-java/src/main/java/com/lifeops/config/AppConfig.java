@@ -15,13 +15,13 @@ import java.time.Duration;
 @Configuration
 public class AppConfig {
 
-    @Value("${c2fe4j.llm.base-url:}")
+    @Value("${lifeops.llm.base-url:}")
     private String baseUrl;
 
-    @Value("${c2fe4j.llm.api-key:}")
+    @Value("${lifeops.llm.api-key:}")
     private String apiKey;
 
-    @Value("${c2fe4j.llm.model:deepseek-chat}")
+    @Value("${lifeops.llm.model:deepseek-chat}")
     private String model;
 
     @Bean

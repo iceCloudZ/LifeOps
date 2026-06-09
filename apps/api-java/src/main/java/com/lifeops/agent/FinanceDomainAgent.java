@@ -15,7 +15,7 @@ import java.util.List;
 
 @Component
 @RequiredArgsConstructor
-public class FinanceDomainAgent implements io.github.icecloudz.c2fe4j.agent.DomainAgent {
+public class FinanceDomainAgent implements DomainAgent {
 
     private final FinanceAccountMapper accountMapper;
     private final FinanceRecordMapper recordMapper;

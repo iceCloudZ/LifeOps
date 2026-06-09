@@ -13,7 +13,7 @@ import java.util.List;
 
 @Component
 @RequiredArgsConstructor
-public class MovementDomainAgent implements io.github.icecloudz.c2fe4j.agent.DomainAgent {
+public class MovementDomainAgent implements DomainAgent {
 
     private final MovementRecordMapper recordMapper;
     private final KnowledgeNoteMapper noteMapper;

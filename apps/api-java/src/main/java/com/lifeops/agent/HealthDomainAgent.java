@@ -15,7 +15,7 @@ import java.util.List;
 
 @Component
 @RequiredArgsConstructor
-public class HealthDomainAgent implements io.github.icecloudz.c2fe4j.agent.DomainAgent {
+public class HealthDomainAgent implements DomainAgent {
 
     private final HealthProfileMapper profileMapper;
     private final HealthRecordMapper recordMapper;
