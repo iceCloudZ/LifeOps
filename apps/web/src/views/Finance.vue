@@ -10,12 +10,15 @@
       </div>
       <div class="grid-3" v-if="accounts.length > 0">
         <div class="card overview-card" v-for="a in accounts" :key="a.id" style="margin-bottom: 0;">
-          <div style="font-size: 14px; color: var(--text-secondary);">{{ a.name }}</div>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="font-size: 14px; color: var(--text-secondary);">{{ a.name }}</div>
+            <span v-if="memberName(a.member_id)" class="badge badge-blue" style="font-size: 11px;">{{ memberName(a.member_id) }}</span>
+          </div>
           <div style="font-size: 24px; font-weight: 700; color: var(--primary); margin-top: 8px;">
             ¥{{ parseFloat(a.balance || 0).toFixed(2) }}
           </div>
           <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">
-            {{ a.type || '默认' }}
+            {{ accountTypeLabel(a.type) }}
           </div>
         </div>
       </div>
@@ -74,7 +77,7 @@
               <td><span class="badge" :class="r.type === 'income' ? 'badge-green' : 'badge-red'">{{ r.type === 'income' ? '收入' : '支出' }}</span></td>
               <td>{{ r.category || '-' }}</td>
               <td style="font-weight: 600;">¥{{ parseFloat(r.amount || 0).toFixed(2) }}</td>
-              <td>{{ r.member_name || '-' }}</td>
+              <td>{{ memberName(r.member_id) || '-' }}</td>
               <td>{{ r.note || r.description || '-' }}</td>
             </tr>
           </tbody>
@@ -102,6 +105,13 @@
         <div class="form-group">
           <label>初始余额</label>
           <input v-model="accountForm.balance" type="number" step="0.01" placeholder="0.00" />
+        </div>
+        <div class="form-group">
+          <label>归属成员</label>
+          <select v-model="accountForm.member_id">
+            <option value="">家庭共有</option>
+            <option v-for="m in members" :key="m.id" :value="m.id">{{ m.name }}</option>
+          </select>
         </div>
         <div class="modal-actions">
           <button class="btn btn-secondary" @click="showAccountModal = false">取消</button>
@@ -170,7 +180,7 @@ export default {
         category: '',
         member_id: '',
       },
-      accountForm: { name: '', type: 'savings', balance: '' },
+      accountForm: { name: '', type: 'savings', balance: '', member_id: '' },
       recordForm: { type: 'expense', amount: '', category: '', member_id: '', date: '', note: '' },
     }
   },
@@ -214,9 +224,10 @@ export default {
           name: this.accountForm.name,
           type: this.accountForm.type,
           balance: parseFloat(this.accountForm.balance) || 0,
+          member_id: this.accountForm.member_id || null,
         })
         this.showAccountModal = false
-        this.accountForm = { name: '', type: 'savings', balance: '' }
+        this.accountForm = { name: '', type: 'savings', balance: '', member_id: '' }
         await this.loadAccounts()
       } catch {
         // ignore
@@ -243,6 +254,15 @@ export default {
     formatDate(d) {
       if (!d) return '-'
       return new Date(d).toLocaleDateString('zh-CN')
+    },
+    memberName(id) {
+      if (!id) return ''
+      const m = this.members.find(m => m.id === id)
+      return m ? m.name : ''
+    },
+    accountTypeLabel(t) {
+      const map = { savings: '储蓄卡', credit: '信用卡', cash: '现金', investment: '投资' }
+      return map[t] || t || '默认'
     },
   },
 }

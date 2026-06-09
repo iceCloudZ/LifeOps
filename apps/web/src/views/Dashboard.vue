@@ -130,17 +130,16 @@ export default {
   methods: {
     async sendChat() {
       if (!this.chatInput.trim()) return
+      const text = this.chatInput
+      this.chatInput = ''
       try {
-        const res = await api.post('/api/chat/conversations', { title: this.chatInput })
+        const res = await api.post('/api/chat/conversations', { title: text })
         const convId = res.data.id || res.data.conversation_id
         if (convId) {
-          await api.post(`/api/chat/conversations/${convId}/messages`, {
-            content: this.chatInput,
-          })
+          this.$router.push({ name: 'Chat', query: { conv: convId, msg: text } })
         }
-        this.chatInput = ''
       } catch {
-        this.chatInput = ''
+        this.chatInput = text
       }
     },
     async loadFinance() {

@@ -7,5 +7,7 @@ dist/
 *.log
 *.tmp
 hs_err_pid*
+*.exe
+*.db
 .superpowers/
 .story/

@@ -1,5 +1,6 @@
 package com.lifeops.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
@@ -25,6 +26,12 @@ public class AppConfig {
 
     @Value("${lifeops.llm.model:deepseek-chat}")
     private String model;
+
+    @Bean
+    @ConditionalOnMissingBean(ObjectMapper.class)
+    public ObjectMapper objectMapper() {
+        return new ObjectMapper();
+    }
 
     @Bean
     @ConditionalOnMissingBean(ChatModel.class)

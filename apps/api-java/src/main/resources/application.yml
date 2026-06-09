@@ -20,8 +20,6 @@ mybatis-plus:
 
 lifeops:
   token: ${LIFEOPS_WEBHOOK_TOKEN:dev-token}
-
-lifeops:
   llm:
     base-url: ${LIFEOPS_AI_ENDPOINT:https://api.deepseek.com}
     api-key: ${LIFEOPS_AI_API_KEY:}

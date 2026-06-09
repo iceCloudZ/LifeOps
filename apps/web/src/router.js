@@ -8,6 +8,7 @@ import Work from './views/Work.vue'
 import Family from './views/Family.vue'
 import Notes from './views/Notes.vue'
 import Members from './views/Members.vue'
+import MemberDetail from './views/MemberDetail.vue'
 import Settings from './views/Settings.vue'
 
 const routes = [
@@ -20,6 +21,7 @@ const routes = [
   { path: '/family', name: 'Family', component: Family },
   { path: '/notes', name: 'Notes', component: Notes },
   { path: '/members', name: 'Members', component: Members },
+  { path: '/members/:id', name: 'MemberDetail', component: MemberDetail },
   { path: '/settings', name: 'Settings', component: Settings },
 ]
 
