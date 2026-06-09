@@ -45,6 +45,7 @@ public class ChatTraceService {
             trace.setTotalLatencyMs(0);
             trace.setLlmCallCount(0);
             trace.setToolCallCount(0);
+            trace.setCreatedAt(java.time.LocalDateTime.now());
             traceMapper.insert(trace);
             return trace;
         } catch (Exception e) {
@@ -72,6 +73,7 @@ public class ChatTraceService {
             span.setLatencyMs(latencyMs);
             span.setStatus(status);
             span.setMetadata(metadata);
+            span.setCreatedAt(java.time.LocalDateTime.now());
             spanMapper.insert(span);
             return span.getId();
         } catch (Exception e) {
