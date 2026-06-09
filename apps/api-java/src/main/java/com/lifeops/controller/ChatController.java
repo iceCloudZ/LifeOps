@@ -1,12 +1,15 @@
 package com.lifeops.controller;
 
+import com.lifeops.agent.RoutingResult;
 import com.lifeops.entity.ChatMessage;
 import com.lifeops.entity.Conversation;
 import com.lifeops.service.ChatService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
 import java.util.Map;
@@ -51,5 +54,36 @@ public class ChatController {
         }
         ChatMessage msg = chatService.sendMessage(id, content.trim());
         return ResponseEntity.status(HttpStatus.CREATED).body(msg);
+    }
+
+    // Phase 1: Route — returns lens recommendation
+    @PostMapping("/{id}/route")
+    public ResponseEntity<?> route(@PathVariable String id, @RequestBody Map<String, String> body) {
+        String content = body.get("content");
+        String currentMemberId = body.get("currentMemberId");
+        if (content == null || content.trim().isEmpty()) return ResponseEntity.badRequest().build();
+        RoutingResult result = chatService.route(id, content.trim(), currentMemberId);
+        return ResponseEntity.ok(result);
+    }
+
+    // Phase 2: Execute — SSE stream with tool calling
+    @PostMapping(value = "/{id}/execute", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter execute(@PathVariable String id, @RequestBody Map<String, Object> body) {
+        String content = (String) body.get("content");
+        String currentMemberId = (String) body.get("currentMemberId");
+        String lens = (String) body.get("lens");
+        @SuppressWarnings("unchecked")
+        List<String> domain = (List<String>) body.get("domain");
+        RoutingResult routing = new RoutingResult(domain != null ? domain : List.of("family"), lens, "", false);
+        return chatService.executeStreaming(id, content, routing, currentMemberId);
+    }
+
+    // Confirm write operation
+    @PostMapping("/{id}/confirm/{messageId}")
+    public ResponseEntity<Map<String, Boolean>> confirm(@PathVariable String id,
+                                                          @PathVariable String messageId,
+                                                          @RequestBody Map<String, Object> body) {
+        boolean success = chatService.confirmWrite(body);
+        return ResponseEntity.ok(Map.of("success", success));
     }
 }
