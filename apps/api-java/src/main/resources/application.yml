@@ -3,7 +3,7 @@ server:
 
 spring:
   datasource:
-    url: jdbc:sqlite:${LIFEOPS_DB_PATH:/d/github/LifeOps/data/lifeops.db}
+    url: jdbc:sqlite:${LIFEOPS_DB_PATH:D:/github/LifeOps/data/lifeops.db}
     driver-class-name: org.sqlite.JDBC
   sql:
     init:
