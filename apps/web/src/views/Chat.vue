@@ -266,55 +266,54 @@ export default {
           const { done, value } = await reader.read()
           if (done) break
           buffer += decoder.decode(value, { stream: true })
-          const parts = buffer.split('\n\n')
-          buffer = parts.pop()
-          for (const part of parts) {
-            const lines = part.split('\n')
-            let eventName = '', eventData = ''
-            for (const line of lines) {
-              if (line.startsWith('event: ')) eventName = line.slice(7)
-              else if (line.startsWith('data: ')) eventData = line.slice(6)
-            }
-            if (!eventName) continue
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || ''
 
-            if (eventName === 'token') {
-              this.streamingContent += eventData
-              this.$nextTick(() => this.scrollToBottom())
-            } else if (eventName === 'tool_start') {
-              try {
-                const info = JSON.parse(eventData)
-                const tName = info.tool || info.name || eventData
-                this.streamingTools.push({
-                  name: tName,
-                  label: toolNameMap[tName] || ('正在执行 ' + tName),
-                })
-              } catch {
-                this.streamingTools.push({ name: eventData, label: '正在查询...' })
-              }
-              this.$nextTick(() => this.scrollToBottom())
-            } else if (eventName === 'tool_result') {
-              try {
-                const result = JSON.parse(eventData)
-                if (result.status === 'pending_confirmation') {
-                  streamingConfirms.push({
-                    id: 'cf-' + Date.now() + '-' + streamingConfirms.length,
-                    msgId: assistantMsgId,
-                    action: result.action,
-                    summary: result.summary,
-                    data: result.data,
-                    resolved: false,
+          let currentEvent = ''
+          for (const line of lines) {
+            if (line.startsWith('event:')) {
+              currentEvent = line.slice(6).trim()
+            } else if (line.startsWith('data:')) {
+              const data = line.slice(5)
+              if (currentEvent === 'token') {
+                this.streamingContent += data
+                this.$nextTick(() => this.scrollToBottom())
+              } else if (currentEvent === 'tool_start') {
+                try {
+                  const info = JSON.parse(data)
+                  const tName = info.tool || info.name || ''
+                  this.streamingTools.push({
+                    name: tName,
+                    label: toolNameMap[tName] || ('正在执行 ' + tName),
                   })
+                } catch {
+                  this.streamingTools.push({ name: data, label: '正在查询...' })
                 }
-              } catch {
-                // not JSON or not a confirmation, ignore
-              }
-            } else if (eventName === 'confirm') {
-              // informational confirm event (tool is about to execute)
-            } else if (eventName === 'done') {
-              // stream finished
-            } else if (eventName === 'error') {
-              if (!this.streamingContent) {
-                this.streamingContent = '请求出错：' + eventData
+                this.$nextTick(() => this.scrollToBottom())
+              } else if (currentEvent === 'tool_result') {
+                try {
+                  const result = JSON.parse(data)
+                  if (result.status === 'pending_confirmation') {
+                    streamingConfirms.push({
+                      id: 'cf-' + Date.now() + '-' + streamingConfirms.length,
+                      msgId: assistantMsgId,
+                      action: result.action,
+                      summary: result.summary,
+                      data: result.data,
+                      resolved: false,
+                    })
+                  }
+                } catch {
+                  // not JSON or not a confirmation, ignore
+                }
+              } else if (currentEvent === 'confirm') {
+                // informational confirm event
+              } else if (currentEvent === 'done') {
+                // stream finished
+              } else if (currentEvent === 'error') {
+                if (!this.streamingContent) {
+                  this.streamingContent = '请求出错：' + data
+                }
               }
             }
           }

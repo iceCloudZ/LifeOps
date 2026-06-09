@@ -4,6 +4,7 @@ import com.lifeops.agent.RoutingResult;
 import com.lifeops.entity.ChatMessage;
 import com.lifeops.entity.Conversation;
 import com.lifeops.service.ChatService;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -68,7 +69,10 @@ public class ChatController {
 
     // Phase 2: Execute — SSE stream with tool calling
     @PostMapping(value = "/{id}/execute", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter execute(@PathVariable String id, @RequestBody Map<String, Object> body) {
+    public SseEmitter execute(@PathVariable String id, @RequestBody Map<String, Object> body,
+                               HttpServletResponse response) {
+        response.setHeader("X-Accel-Buffering", "no");
+        response.setHeader("Cache-Control", "no-cache");
         String content = (String) body.get("content");
         String currentMemberId = (String) body.get("currentMemberId");
         String lens = (String) body.get("lens");
