@@ -28,7 +28,10 @@
           <div class="chat-message" :class="msg.role">
             <div class="avatar">{{ msg.role === 'user' ? '我' : 'AI' }}</div>
             <div class="content">
-              {{ msg.content }}
+              <template v-if="msg.role === 'assistant'">
+                <MarkdownRender :content="msg.content" />
+              </template>
+              <template v-else>{{ msg.content }}</template>
               <div v-if="msg.role === 'assistant'" class="lens-info">
                 <span v-if="msg.lens_name" class="lens-badge" :title="msg.lens_reason">
                   {{ msg.lens_name }}
@@ -69,7 +72,8 @@
         <div v-if="isStreaming" class="chat-message assistant">
           <div class="avatar">AI</div>
           <div class="content">
-            {{ streamingContent }}<span class="streaming-cursor">|</span>
+            <MarkdownRender :content="streamingContent" :typewriter="true" :max-live-nodes="0" :fade="false" />
+            <span v-if="streamingContent" class="streaming-cursor">|</span>
             <div v-if="streamingTools.length > 0" class="tool-indicators">
               <span v-for="tool in streamingTools" :key="tool.name" class="tool-pill">
                 {{ tool.label || '正在查询...' }}
@@ -95,12 +99,14 @@
 
 <script>
 import api from '../api.js'
+import { MarkdownRender } from 'markstream-vue'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
 const API_TOKEN = import.meta.env.VITE_API_TOKEN || 'dev-token'
 
 export default {
   name: 'Chat',
+  components: { MarkdownRender },
   data() {
     return {
       conversations: [],
