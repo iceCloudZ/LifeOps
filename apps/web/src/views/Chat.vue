@@ -108,7 +108,7 @@
 <script>
 import api from '../api.js'
 import { MarkdownRender } from 'markstream-vue'
-import 'markstream-vue/dist/index.css'
+import 'markstream-vue/index.css'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
 const API_TOKEN = import.meta.env.VITE_API_TOKEN || 'dev-token'
