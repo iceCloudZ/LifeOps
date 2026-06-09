@@ -41,3 +41,26 @@ jobs:
         with:
           name: lifeops-api-binaries
           path: dist/lifeops-api-linux-*
+
+  api-java:
+    name: Java API
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api-java
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup JDK 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: bellsoft
+          java-version: '25'
+          cache: maven
+
+      - name: Compile
+        run: ./mvnw compile -q
+
+      - name: Test
+        run: ./mvnw test

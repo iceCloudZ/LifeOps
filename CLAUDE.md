@@ -57,17 +57,41 @@ GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o lif
 
 ## Repository Layout
 
-- `apps/api/` — Go backend (MVP API service)
-- `apps/web/` — Vue 3 + Vite + PWA frontend (planned)
-- `internal/` — domain modules: family/inbox, drafts, tasks, events, briefing, ai/extractor, ai/guardrails (target structure, not yet migrated)
+- `apps/api-java/` — Java backend (Spring Boot 4.0.6, Java 25, SQLite, MyBatis-Plus, LangChain4j 1.16.0)
+- `apps/api/` — Go backend (legacy, replaced by api-java)
+- `apps/web/` — Vue 3 + Vite + PWA frontend
 - `deploy/docker-compose.yml` — Docker deployment
-- `docs/` — architecture, prompt strategy, backend spike comparisons
-- `experiments/quarkus/` — Quarkus spike (legacy reference only)
-- `familyops-mvp-architecture.md` — full MVP spec and data model
+- `docs/` — architecture, prompt strategy, specs, plans
+
+## Build & Run (Java backend)
+
+```bash
+cd apps/api-java
+JAVA_HOME="/c/Users/zzh58/.jdks/ms-25.0.3" ./mvnw compile     # compile
+JAVA_HOME="/c/Users/zzh58/.jdks/ms-25.0.3" ./mvnw test         # run tests
+JAVA_HOME="/c/Users/zzh58/.jdks/ms-25.0.3" ./mvnw spring-boot:run  # dev server
+```
+
+## Testing Rules
+
+AI-generated code MUST be tested. This applies to all AI tools (Claude Code, Cursor, Copilot, etc.):
+
+- **New public method → corresponding unit test**
+- **New/modified Controller endpoint → integration test**
+- **TDD preferred**: write failing test first, then implement
+- **After any code change**: run `mvn test` to verify nothing breaks
+- **Test directory**: `apps/api-java/src/test/java/com/lifeops/`
+- **Frameworks**: JUnit 5, Mockito, Spring Boot Test (`@SpringBootTest`, `@WebMvcTest`)
+- **Test naming**: `methodName_scenario_expectedResult` (e.g., `route_healthQuery_returnsHealthDomain`)
+
+What to test:
+- Unit: ToolDispatcher, LensRegistry, ButlerAgent routing logic, Service methods
+- Integration: ChatController endpoints, ChatService two-phase flow
+- Do NOT test trivial getters/setters or Lombok-generated code
 
 ## Code Style
 
-- Stdlib first, minimal external dependencies
-- Organize code so Java engineers can read it: handler → service → store → model → config
-- No complex frameworks or excessive Go abstractions
-- AI prompt strategy is documented in `docs/prompt-strategy.md` — keep prompts and guardrails in sync
+- Java 25 idioms (records, sealed interfaces, text blocks, pattern matching)
+- Organize: controller → service → mapper → entity → config
+- No comments unless the WHY is non-obvious
+- AI prompt strategy is documented in `docs/prompt-strategy.md`
