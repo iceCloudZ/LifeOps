@@ -63,7 +63,7 @@ public class LensRegistry {
             SkillEntry entry = skills.get(id);
             if (entry == null) return null;
             try {
-                return readClasspathResource(entry.path);
+                return readClasspathResource("skills/" + entry.path);
             } catch (IOException e) {
                 log.warn("Failed to load lens content for {}: {}", id, e.getMessage());
                 return null;
