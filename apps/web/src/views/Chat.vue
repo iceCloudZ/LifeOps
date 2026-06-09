@@ -29,7 +29,7 @@
             <div class="avatar">{{ msg.role === 'user' ? '我' : 'AI' }}</div>
             <div class="content">
               <template v-if="msg.role === 'assistant'">
-                <MarkdownRender :content="msg.content" />
+                <MarkdownRender mode="chat" :content="msg.content" :final="true" :fade="false" />
               </template>
               <template v-else>{{ msg.content }}</template>
               <div v-if="msg.role === 'assistant'" class="lens-info">
@@ -72,7 +72,15 @@
         <div v-if="isStreaming" class="chat-message assistant">
           <div class="avatar">AI</div>
           <div class="content">
-            <MarkdownRender :content="streamingContent" :typewriter="true" :max-live-nodes="0" :fade="false" />
+            <MarkdownRender
+              mode="chat"
+              :content="streamingContent"
+              :final="false"
+              smooth-streaming="auto"
+              :fade="false"
+              :max-live-nodes="0"
+              :typewriter="true"
+            />
             <span v-if="streamingContent" class="streaming-cursor">|</span>
             <div v-if="streamingTools.length > 0" class="tool-indicators">
               <span v-for="tool in streamingTools" :key="tool.name" class="tool-pill">
@@ -100,6 +108,7 @@
 <script>
 import api from '../api.js'
 import { MarkdownRender } from 'markstream-vue'
+import 'markstream-vue/dist/index.css'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
 const API_TOKEN = import.meta.env.VITE_API_TOKEN || 'dev-token'
@@ -372,97 +381,6 @@ export default {
 </script>
 
 <style scoped>
-/* Markdown content styling — :deep() penetrates into MarkdownRender */
-.content :deep(p) {
-  margin: 0.4em 0;
-  line-height: 1.65;
-}
-.content :deep(p:first-child) { margin-top: 0; }
-.content :deep(p:last-child) { margin-bottom: 0; }
-
-.content :deep(strong) { font-weight: 600; }
-.content :deep(em) { font-style: italic; }
-
-.content :deep(ul), .content :deep(ol) {
-  padding-left: 1.5em;
-  margin: 0.4em 0;
-}
-.content :deep(li) { margin: 0.15em 0; }
-
-.content :deep(h1), .content :deep(h2), .content :deep(h3), .content :deep(h4) {
-  margin: 0.6em 0 0.3em;
-  line-height: 1.3;
-}
-.content :deep(h1) { font-size: 1.3em; }
-.content :deep(h2) { font-size: 1.15em; }
-.content :deep(h3) { font-size: 1.05em; }
-
-.content :deep(code) {
-  font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
-  font-size: 0.9em;
-  background: rgba(0, 0, 0, 0.06);
-  padding: 1px 5px;
-  border-radius: 4px;
-}
-.content :deep(pre) {
-  background: #1e1e1e;
-  color: #d4d4d4;
-  padding: 12px 14px;
-  border-radius: 8px;
-  overflow-x: auto;
-  margin: 0.5em 0;
-  font-size: 13px;
-  line-height: 1.5;
-}
-.content :deep(pre code) {
-  background: none;
-  padding: 0;
-  font-size: inherit;
-  color: inherit;
-}
-
-.content :deep(table) {
-  border-collapse: collapse;
-  margin: 0.5em 0;
-  font-size: 13px;
-}
-.content :deep(th), .content :deep(td) {
-  border: 1px solid var(--border);
-  padding: 6px 10px;
-  text-align: left;
-}
-.content :deep(th) {
-  background: #f3f4f6;
-  font-weight: 600;
-}
-
-.content :deep(blockquote) {
-  border-left: 3px solid var(--primary);
-  padding-left: 12px;
-  color: var(--text-secondary);
-  margin: 0.5em 0;
-}
-
-.content :deep(a) {
-  color: var(--primary);
-  text-decoration: underline;
-}
-
-.content :deep(hr) {
-  border: none;
-  border-top: 1px solid var(--border);
-  margin: 0.75em 0;
-}
-
-/* Prevent overflow */
-.content {
-  word-break: break-word;
-  overflow-wrap: break-word;
-}
-.content :deep(*) {
-  max-width: 100%;
-}
-
 .lens-info {
   margin-top: 6px;
   display: flex;
