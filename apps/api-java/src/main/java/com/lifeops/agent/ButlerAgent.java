@@ -2,22 +2,19 @@ package com.lifeops.agent;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lifeops.agent.tool.LifeOpsReadTools;
+import com.lifeops.agent.tool.LifeOpsWriteTools;
 import com.lifeops.agent.tool.ToolDispatcher;
 import com.lifeops.entity.ChatTrace;
 import com.lifeops.service.trace.ChatTraceService;
-import dev.langchain4j.agent.tool.ToolExecutionRequest;
-import dev.langchain4j.data.message.AiMessage;
-import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
-import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.memory.ChatMemory;
+import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
-import dev.langchain4j.model.chat.request.ChatRequest;
-import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.model.chat.response.ChatResponse;
-import dev.langchain4j.model.chat.response.CompleteToolCall;
-import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
+import dev.langchain4j.service.AiServices;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
@@ -25,9 +22,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.util.ArrayList;
+import java.math.BigDecimal;
 import java.util.List;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
@@ -41,8 +37,11 @@ public class ButlerAgent {
     private final List<DomainAgent> domainAgents;
     private final LensRegistry lensRegistry;
     private final ToolDispatcher toolDispatcher;
+    private final LifeOpsReadTools readTools;
+    private final LifeOpsWriteTools writeTools;
     private final ObjectMapper objectMapper;
     private final ChatTraceService traceService;
+    private final SqliteChatMemoryStore chatMemoryStore;
 
     @PostConstruct
     void init() {
@@ -57,13 +56,7 @@ public class ButlerAgent {
         traceService.markRunningTracesAsInterrupted();
     }
 
-    /**
-     * Backward-compatible synchronous answer method used by ChatService.
-     * Will be replaced with the two-phase route+execute pattern in a follow-up task.
-     */
     public AgentResponse answer(String query, String conversationId) {
-        String sessionId = conversationId != null ? conversationId : java.util.UUID.randomUUID().toString();
-
         long start = System.currentTimeMillis();
         ChatResponse response = chatModel.chat(
             SystemMessage.from("You are Butler, a helpful personal life management assistant."),
@@ -72,9 +65,7 @@ public class ButlerAgent {
         long latencyMs = System.currentTimeMillis() - start;
 
         String content = response.aiMessage().text();
-        int promptTokens = 0;
-        int completionTokens = 0;
-        int totalTokens = 0;
+        int promptTokens = 0, completionTokens = 0, totalTokens = 0;
         if (response.tokenUsage() != null) {
             promptTokens = response.tokenUsage().inputTokenCount();
             completionTokens = response.tokenUsage().outputTokenCount();
@@ -84,9 +75,6 @@ public class ButlerAgent {
         return new AgentResponse(content, promptTokens, completionTokens, totalTokens, latencyMs);
     }
 
-    /**
-     * Phase 1: Route the user query to the appropriate domains and lens.
-     */
     public RoutingResult route(String query, String currentMemberId) {
         String lensIndex = lensRegistry.getLensIndexText();
 
@@ -110,7 +98,6 @@ public class ButlerAgent {
                 UserMessage.from(query)
             );
             String raw = response.aiMessage().text();
-            // Strip markdown code fences if present
             if (raw != null) {
                 raw = raw.trim();
                 if (raw.startsWith("```")) {
@@ -127,28 +114,139 @@ public class ButlerAgent {
         }
     }
 
-    /**
-     * Phase 2: Execute with streaming and tool support.
-     */
     public void executeWithTools(SseEmitter emitter, String query, RoutingResult routing,
                                   String conversationId, String currentMemberId,
                                   Consumer<String> onComplete) {
+        Thread.startVirtualThread(() -> {
+            try {
+                doExecuteWithTools(emitter, query, routing, conversationId, currentMemberId, onComplete);
+            } catch (Exception e) {
+                log.error("Execute with tools failed", e);
+                sendSse(emitter, "error", e.getMessage());
+                emitter.completeWithError(e);
+            }
+        });
+    }
+
+    private void doExecuteWithTools(SseEmitter emitter, String query, RoutingResult routing,
+                                     String conversationId, String currentMemberId,
+                                     Consumer<String> onComplete) {
         long startMs = System.currentTimeMillis();
+
         ChatTrace trace = traceService.createTrace(conversationId, query, "deepseek-v4-pro",
             routing.lens());
-        if (trace == null) {
-            log.warn("Failed to create trace, continuing without tracing");
-        }
         Long traceId = trace != null ? trace.getId() : null;
         AtomicInteger spanNo = new AtomicInteger(0);
 
-        // Span: routing decision
         if (traceId != null) {
             traceService.addSpan(traceId, spanNo.incrementAndGet(), "routing", "route:" + routing.domain(),
                 null, query, routing.toString(), 0, 0, 0, 0, "ok", null);
         }
 
-        // Build system message from lens content + domain prompts + base instructions
+        String systemPrompt = buildSystemPrompt(routing);
+        AtomicInteger totalPrompt = new AtomicInteger(0);
+        AtomicInteger totalCompletion = new AtomicInteger(0);
+        AtomicInteger llmCount = new AtomicInteger(0);
+        AtomicInteger toolCount = new AtomicInteger(0);
+        StringBuilder responseBuffer = new StringBuilder();
+
+        ChatMemory chatMemory = MessageWindowChatMemory.builder()
+            .id(conversationId)
+            .maxMessages(200)
+            .chatMemoryStore(chatMemoryStore)
+            .build();
+        chatMemory.add(SystemMessage.from(systemPrompt));
+
+        ButlerAssistant assistant = AiServices.builder(ButlerAssistant.class)
+            .streamingChatModel(streamingChatModel)
+            .chatMemory(chatMemory)
+            .tools(readTools, writeTools)
+            .build();
+
+        assistant.chat(query)
+            .onPartialResponse(token -> {
+                responseBuffer.append(token);
+                sendSse(emitter, "token", token);
+            })
+            .beforeToolExecution(before -> {
+                String toolName = before.request().name();
+                String args = before.request().arguments();
+                try {
+                    sendSse(emitter, "tool_start", objectMapper.writeValueAsString(
+                        java.util.Map.of("tool", toolName, "arguments", args != null ? args : "{}")));
+                } catch (JsonProcessingException e) {
+                    sendSse(emitter, "tool_start", "{\"tool\":\"" + toolName + "\"}");
+                }
+            })
+            .onToolExecuted(execution -> {
+                toolCount.incrementAndGet();
+                String toolName = execution.request().name();
+                String result = execution.result();
+                sendSse(emitter, "tool_result", result);
+
+                if (traceId != null) {
+                    traceService.addSpan(traceId, spanNo.incrementAndGet(),
+                        "tool_execution", toolName, null,
+                        truncate(execution.request().arguments(), 500),
+                        truncate(result, 2000),
+                        0, 0, 0, 0, "ok", null);
+                }
+            })
+            .onIntermediateResponse(response -> {
+                llmCount.incrementAndGet();
+                int promptTokens = response.tokenUsage() != null ? response.tokenUsage().inputTokenCount() : 0;
+                int completionTokens = response.tokenUsage() != null ? response.tokenUsage().outputTokenCount() : 0;
+                totalPrompt.addAndGet(promptTokens);
+                totalCompletion.addAndGet(completionTokens);
+
+                if (traceId != null) {
+                    traceService.addSpan(traceId, spanNo.incrementAndGet(),
+                        "llm_call", "execute", null, null,
+                        responseBuffer.length() > 0 ? responseBuffer.toString() : null,
+                        promptTokens, completionTokens, 0, 0, "ok", null);
+                }
+            })
+            .onCompleteResponse(response -> {
+                int latencyMs = (int) (System.currentTimeMillis() - startMs);
+
+                llmCount.incrementAndGet();
+                int promptTokens = response.tokenUsage() != null ? response.tokenUsage().inputTokenCount() : 0;
+                int completionTokens = response.tokenUsage() != null ? response.tokenUsage().outputTokenCount() : 0;
+                totalPrompt.addAndGet(promptTokens);
+                totalCompletion.addAndGet(completionTokens);
+
+                if (traceId != null) {
+                    traceService.addSpan(traceId, spanNo.incrementAndGet(),
+                        "llm_call", "execute", null, null,
+                        responseBuffer.length() > 0 ? responseBuffer.toString() : null,
+                        promptTokens, completionTokens, 0, 0, "ok", null);
+
+                    traceService.completeTrace(traceId, null,
+                        totalPrompt.get(), totalCompletion.get(),
+                        totalPrompt.get() + totalCompletion.get(), 0,
+                        BigDecimal.ZERO, latencyMs,
+                        llmCount.get(), toolCount.get());
+                }
+
+                String finalText = responseBuffer.toString();
+                sendSse(emitter, "done", finalText);
+                if (onComplete != null) onComplete.accept(finalText);
+                emitter.complete();
+            })
+            .onError(error -> {
+                log.error("Streaming error", error);
+                if (traceId != null) {
+                    traceService.addSpan(traceId, spanNo.incrementAndGet(), "llm_call", "execute",
+                        null, null, error.getMessage(), 0, 0, 0, 0, "error", null);
+                    traceService.failTrace(traceId, error.getMessage());
+                }
+                sendSse(emitter, "error", error.getMessage());
+                emitter.completeWithError(error);
+            })
+            .start();
+    }
+
+    private String buildSystemPrompt(RoutingResult routing) {
         StringBuilder systemBuilder = new StringBuilder();
         systemBuilder.append("You are Butler, a personal life management AI assistant.\n\n");
 
@@ -175,171 +273,9 @@ public class ButlerAgent {
             - Respond concisely and helpfully.
             """);
 
-        List<ChatMessage> messages = new ArrayList<>();
-        messages.add(SystemMessage.from(systemBuilder.toString()));
-        messages.add(UserMessage.from(query));
-
-        List<ToolSpecification> toolSpecs = toolDispatcher.getToolSpecifications();
-
-        // Accumulators for final trace completion
-        AtomicInteger totalPrompt = new AtomicInteger(0);
-        AtomicInteger totalCompletion = new AtomicInteger(0);
-        AtomicInteger totalCached = new AtomicInteger(0);
-        AtomicInteger llmCount = new AtomicInteger(0);
-        AtomicInteger toolCount = new AtomicInteger(0);
-
-        streamWithToolLoop(emitter, messages, toolSpecs, onComplete,
-            traceId, spanNo, totalPrompt, totalCompletion, totalCached, llmCount, toolCount);
-
-        // Complete trace
-        if (traceId != null) {
-            int latencyMs = (int) (System.currentTimeMillis() - startMs);
-            traceService.completeTrace(traceId, null,
-                totalPrompt.get(), totalCompletion.get(),
-                totalPrompt.get() + totalCompletion.get(), totalCached.get(),
-                java.math.BigDecimal.ZERO, latencyMs,
-                llmCount.get(), toolCount.get());
-        }
+        return systemBuilder.toString();
     }
 
-    private void streamWithToolLoop(SseEmitter emitter, List<ChatMessage> messages,
-                                     List<ToolSpecification> toolSpecs,
-                                     Consumer<String> onComplete,
-                                     Long traceId, AtomicInteger spanNo,
-                                     AtomicInteger totalPrompt, AtomicInteger totalCompletion,
-                                     AtomicInteger totalCached,
-                                     AtomicInteger llmCount, AtomicInteger toolCount) {
-        ChatRequest chatRequest = ChatRequest.builder()
-                .messages(messages)
-                .toolSpecifications(toolSpecs)
-                .build();
-
-        int currentSpanNo = spanNo.incrementAndGet();
-        StringBuilder tokenBuffer = new StringBuilder();
-        List<CompleteToolCall> toolCalls = new ArrayList<>();
-        CountDownLatch latch = new CountDownLatch(1);
-
-        streamingChatModel.chat(chatRequest, new StreamingChatResponseHandler() {
-            @Override
-            public void onPartialResponse(String partialResponse) {
-                tokenBuffer.append(partialResponse);
-                sendSse(emitter, "token", partialResponse);
-            }
-
-            @Override
-            public void onCompleteToolCall(CompleteToolCall completeToolCall) {
-                toolCalls.add(completeToolCall);
-                try {
-                    String args = completeToolCall.toolExecutionRequest().arguments();
-                    String name = completeToolCall.toolExecutionRequest().name();
-                    sendSse(emitter, "tool_start", objectMapper.writeValueAsString(
-                        java.util.Map.of("tool", name, "arguments", args != null ? args : "{}")));
-                } catch (JsonProcessingException e) {
-                    sendSse(emitter, "tool_start", "{\"tool\":\"" +
-                        completeToolCall.toolExecutionRequest().name() + "\"}");
-                }
-            }
-
-            @Override
-            public void onCompleteResponse(ChatResponse chatResponse) {
-                try {
-                    llmCount.incrementAndGet();
-                    int promptTokens = 0, completionTokens = 0, cachedTokens = 0;
-                    if (chatResponse.tokenUsage() != null) {
-                        promptTokens = chatResponse.tokenUsage().inputTokenCount();
-                        completionTokens = chatResponse.tokenUsage().outputTokenCount();
-                    }
-                    totalPrompt.addAndGet(promptTokens);
-                    totalCompletion.addAndGet(completionTokens);
-                    totalCached.addAndGet(cachedTokens);
-
-                    // End this LLM call span
-                    if (traceId != null) {
-                        traceService.addSpan(traceId, currentSpanNo, "llm_call", "execute",
-                            null, null, tokenBuffer.length() > 0 ? tokenBuffer.toString() : null,
-                            promptTokens, completionTokens, cachedTokens, 0, "ok", null);
-                    }
-
-                    if (!toolCalls.isEmpty()) {
-                        String text = tokenBuffer.length() > 0 ? tokenBuffer.toString() : null;
-                        List<ToolExecutionRequest> requests = toolCalls.stream()
-                                .map(CompleteToolCall::toolExecutionRequest)
-                                .toList();
-                        AiMessage aiMessage = AiMessage.builder()
-                                .text(text)
-                                .toolExecutionRequests(requests)
-                                .build();
-                        messages.add(aiMessage);
-
-                        for (ToolExecutionRequest request : requests) {
-                            String toolName = request.name();
-                            String arguments = request.arguments();
-                            sendSse(emitter, "confirm", "Executing: " + toolName);
-
-                            toolCount.incrementAndGet();
-                            long toolStart = System.currentTimeMillis();
-                            String result = toolDispatcher.execute(toolName, arguments);
-                            int toolLatency = (int) (System.currentTimeMillis() - toolStart);
-
-                            if (traceId != null) {
-                                traceService.addSpan(traceId, spanNo.incrementAndGet(),
-                                    "tool_execution", toolName, (long) currentSpanNo,
-                                    truncate(arguments, 500), truncate(result, 2000),
-                                    0, 0, 0, toolLatency, "ok", null);
-                            }
-
-                            ToolExecutionResultMessage resultMsg = ToolExecutionResultMessage.from(request, result);
-                            messages.add(resultMsg);
-                            sendSse(emitter, "tool_result", result);
-                        }
-
-                        streamWithToolLoop(emitter, messages, toolSpecs, onComplete,
-                            traceId, spanNo, totalPrompt, totalCompletion, totalCached,
-                            llmCount, toolCount);
-                    } else {
-                        String finalText = tokenBuffer.toString();
-                        sendSse(emitter, "done", finalText);
-                        if (onComplete != null) onComplete.accept(finalText);
-                        emitter.complete();
-                    }
-                } catch (Exception e) {
-                    log.error("Error in onCompleteResponse", e);
-                    if (traceId != null) {
-                        traceService.failTrace(traceId, e.getMessage());
-                    }
-                    try { emitter.completeWithError(e); } catch (Exception ignored) {}
-                } finally {
-                    latch.countDown();
-                }
-            }
-
-            @Override
-            public void onError(Throwable error) {
-                log.error("Streaming error", error);
-                if (traceId != null) {
-                    traceService.addSpan(traceId, currentSpanNo, "llm_call", "execute",
-                        null, null, error.getMessage(), 0, 0, 0, 0, "error", null);
-                    traceService.failTrace(traceId, error.getMessage());
-                }
-                try {
-                    sendSse(emitter, "error", error.getMessage());
-                    emitter.completeWithError(error);
-                } catch (Exception ignored) {}
-                latch.countDown();
-            }
-        });
-
-        try {
-            latch.await();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            log.warn("Streaming interrupted");
-        }
-    }
-
-    /**
-     * Helper to send SSE events with error handling.
-     */
     private void sendSse(SseEmitter emitter, String eventName, String data) {
         try {
             emitter.send(SseEmitter.event().name(eventName).data(data));

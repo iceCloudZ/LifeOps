@@ -1,6 +1,7 @@
 package com.lifeops.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lifeops.agent.ButlerAgent;
 import com.lifeops.agent.RoutingResult;
 import com.lifeops.entity.*;
@@ -23,6 +24,7 @@ public class ChatService {
     private final ConversationMapper conversationMapper;
     private final ChatMessageMapper messageMapper;
     private final ButlerAgent butlerAgent;
+    private final ObjectMapper objectMapper;
     private final FinanceService financeService;
     private final HealthService healthService;
     private final MovementService movementService;
@@ -106,7 +108,11 @@ public class ChatService {
         return assistantMsg;
     }
 
-    public RoutingResult route(String conversationId, String content, String currentMemberId) {
+    public SseEmitter chatStreaming(String conversationId, String content, String currentMemberId) {
+        SseEmitter emitter = new SseEmitter(300_000L);
+        emitter.onCompletion(() -> log.debug("SSE completed for {}", conversationId));
+        emitter.onTimeout(() -> { log.warn("SSE timeout for {}", conversationId); emitter.complete(); });
+
         // Save user message
         ChatMessage userMsg = new ChatMessage();
         userMsg.setId(UUID.randomUUID().toString().replace("-", ""));
@@ -116,15 +122,49 @@ public class ChatService {
         userMsg.setTokensUsed(0);
         userMsg.setCreatedAt(OffsetDateTime.now().toString());
         messageMapper.insert(userMsg);
-        // Route
-        RoutingResult result = butlerAgent.route(content, currentMemberId);
-        // Update conversation
+
+        Thread.startVirtualThread(() -> {
+            try {
+                // Phase 1: Route
+                RoutingResult routing = butlerAgent.route(content, currentMemberId);
+                // Send routing result as SSE event for frontend
+                emitter.send(SseEmitter.event().name("route")
+                    .data(objectMapper.writeValueAsString(routing)));
+
+                // Phase 2: Execute with streaming
+                butlerAgent.executeWithTools(emitter, content, routing, conversationId, currentMemberId,
+                    finalText -> {
+                        String now = OffsetDateTime.now().toString();
+                        ChatMessage assistantMsg = new ChatMessage();
+                        assistantMsg.setId(UUID.randomUUID().toString().replace("-", ""));
+                        assistantMsg.setConversationId(conversationId);
+                        assistantMsg.setRole("assistant");
+                        assistantMsg.setContent(finalText);
+                        assistantMsg.setLensName(routing.lens());
+                        assistantMsg.setLensReason("");
+                        assistantMsg.setTokensUsed(0);
+                        assistantMsg.setCreatedAt(now);
+                        messageMapper.insert(assistantMsg);
+                        Conversation conv = conversationMapper.selectById(conversationId);
+                        if (conv != null) {
+                            conv.setUpdatedAt(now);
+                            conversationMapper.updateById(conv);
+                        }
+                    });
+            } catch (Exception e) {
+                log.error("Chat streaming failed", e);
+                try { emitter.completeWithError(e); } catch (Exception ignored) {}
+            }
+        });
+
+        // Update conversation timestamp
         Conversation conv = conversationMapper.selectById(conversationId);
         if (conv != null) {
             conv.setUpdatedAt(OffsetDateTime.now().toString());
             conversationMapper.updateById(conv);
         }
-        return result;
+
+        return emitter;
     }
 
     public SseEmitter executeStreaming(String conversationId, String content,
@@ -229,4 +269,5 @@ public class ChatService {
             return false;
         }
     }
+
 }

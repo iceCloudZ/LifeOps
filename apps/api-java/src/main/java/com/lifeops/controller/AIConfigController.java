@@ -37,8 +37,7 @@ public class AIConfigController {
 
     @PutMapping
     public ResponseEntity<Map<String, String>> updateConfig(@RequestBody AIConfig config) {
-        // Preserve existing API key if masked value sent
-        if (config.getApiKey() != null && config.getApiKey().startsWith("****")) {
+        if (config.getApiKey() == null || config.getApiKey().isEmpty() || config.getApiKey().startsWith("****")) {
             AIConfig existing = aiConfigMapper.selectOne(
                 new LambdaQueryWrapper<AIConfig>().eq(AIConfig::getId, 1)
             );

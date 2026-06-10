@@ -57,17 +57,19 @@ public class ChatController {
         return ResponseEntity.status(HttpStatus.CREATED).body(msg);
     }
 
-    // Phase 1: Route — returns lens recommendation
-    @PostMapping("/{id}/route")
-    public ResponseEntity<?> route(@PathVariable String id, @RequestBody Map<String, String> body) {
+    // Merged route + execute: single SSE stream
+    @PostMapping(value = "/{id}/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter chat(@PathVariable String id, @RequestBody Map<String, String> body,
+                            HttpServletResponse response) {
+        response.setHeader("X-Accel-Buffering", "no");
+        response.setHeader("Cache-Control", "no-cache");
         String content = body.get("content");
         String currentMemberId = body.get("currentMemberId");
-        if (content == null || content.trim().isEmpty()) return ResponseEntity.badRequest().build();
-        RoutingResult result = chatService.route(id, content.trim(), currentMemberId);
-        return ResponseEntity.ok(result);
+        if (content == null || content.trim().isEmpty()) return new SseEmitter(0L);
+        return chatService.chatStreaming(id, content.trim(), currentMemberId);
     }
 
-    // Phase 2: Execute — SSE stream with tool calling
+    // Backward compat: direct execute with pre-determined routing
     @PostMapping(value = "/{id}/execute", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter execute(@PathVariable String id, @RequestBody Map<String, Object> body,
                                HttpServletResponse response) {

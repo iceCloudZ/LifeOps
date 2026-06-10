@@ -1,4 +1,7 @@
+// DEPRECATED: use apps/api-java instead
 package main
+
+var _ = "THIS_GO_BACKEND_IS_DEPRECATED" // prevent accidental use
 
 import (
 	"log"

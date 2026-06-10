@@ -188,73 +188,28 @@ export default {
       const userMsg = { id: 'u-' + Date.now(), role: 'user', content: text }
       this.messages.push(userMsg)
       this.$nextTick(() => this.scrollToBottom())
-      try {
-        const res = await api.post(`/api/chat/conversations/${this.currentId}/route`, {
-          content: text,
-          currentMemberId: this.currentMemberId,
-        })
-        const route = res.data
-        this.routingResult = {
-          _for: userMsg.id,
-          domain: route.domain || [],
-          lens: route.lens,
-          reason: route.reason,
-          needsWebSearch: route.needsWebSearch || false,
-        }
-        this.$nextTick(() => this.scrollToBottom())
-        if (!route.lens) {
-          this.routingResult = null
-          await this.executeStream(route.lens, route.domain)
-        }
-      } catch {
-        this.messages.push({
-          id: 'e-' + Date.now(),
-          role: 'assistant',
-          content: '路由失败，请稍后重试。',
-          confirms: [],
-        })
-        this.$nextTick(() => this.scrollToBottom())
-      }
-    },
-    async executeWithLens() {
-      const r = this.routingResult
-      this.routingResult = null
-      await this.executeStream(r.lens, r.domain)
-    },
-    async executeWithoutLens() {
-      const r = this.routingResult
-      this.routingResult = null
-      await this.executeStream(null, r.domain)
-    },
-    async executeStream(lens, domain) {
-      const userMsg = this.messages[this.messages.length - 1]
+
       this.isStreaming = true
       this.streamingContent = ''
       this.streamingTools = []
-      this.$nextTick(() => this.scrollToBottom())
 
       const assistantMsgId = 'a-' + Date.now()
       const streamingConfirms = []
-      const payload = {
-        content: userMsg.content,
-        lens: lens,
-        domain: domain || [],
-        currentMemberId: this.currentMemberId,
-      }
 
       try {
-        const response = await fetch(`${API_BASE}/api/chat/conversations/${this.currentId}/execute`, {
+        const response = await fetch(`${API_BASE}/api/chat/conversations/${this.currentId}/chat`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': 'Bearer ' + API_TOKEN,
           },
-          body: JSON.stringify(payload),
+          body: JSON.stringify({
+            content: text,
+            currentMemberId: this.currentMemberId,
+          }),
         })
 
-        if (!response.ok) {
-          throw new Error('Execute request failed: ' + response.status)
-        }
+        if (!response.ok) throw new Error('Chat request failed: ' + response.status)
 
         const reader = response.body.getReader()
         const decoder = new TextDecoder()
@@ -293,6 +248,21 @@ export default {
               if (currentEvent === 'token') {
                 this.streamingContent += data
                 this.$nextTick(() => this.scrollToBottom())
+              } else if (currentEvent === 'route') {
+                // Route result — show lens confirmation if applicable
+                try {
+                  const route = JSON.parse(data)
+                  if (route.lens) {
+                    this.routingResult = {
+                      _for: userMsg.id,
+                      domain: route.domain || [],
+                      lens: route.lens,
+                      reason: route.reason,
+                      needsWebSearch: route.needsWebSearch || false,
+                    }
+                    this.$nextTick(() => this.scrollToBottom())
+                  }
+                } catch { /* ignore parse error */ }
               } else if (currentEvent === 'tool_start') {
                 try {
                   const info = JSON.parse(data)
@@ -318,13 +288,7 @@ export default {
                       resolved: false,
                     })
                   }
-                } catch {
-                  // not JSON or not a confirmation, ignore
-                }
-              } else if (currentEvent === 'confirm') {
-                // informational confirm event
-              } else if (currentEvent === 'done') {
-                // stream finished
+                } catch { /* not JSON or not a confirmation */ }
               } else if (currentEvent === 'error') {
                 if (!this.streamingContent) {
                   this.streamingContent = '请求出错：' + data
@@ -343,12 +307,84 @@ export default {
         id: assistantMsgId,
         role: 'assistant',
         content: this.streamingContent,
-        lens_name: lens || '',
+        lens_name: '',
         lens_reason: '',
         confirms: streamingConfirms,
         tools: this.streamingTools,
       }
       this.messages.push(assistantMsg)
+      this.isStreaming = false
+      this.streamingContent = ''
+      this.streamingTools = []
+      this.$nextTick(() => this.scrollToBottom())
+    },
+    async executeWithLens() {
+      const r = this.routingResult
+      this.routingResult = null
+      this.isStreaming = true
+      this.streamingContent = ''
+      this.streamingTools = []
+      this.$nextTick(() => this.scrollToBottom())
+
+      try {
+        const response = await fetch(`${API_BASE}/api/chat/conversations/${this.currentId}/execute`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + API_TOKEN,
+          },
+          body: JSON.stringify({
+            content: this.messages[this.messages.length - 2].content,
+            currentMemberId: this.currentMemberId,
+            lens: r.lens,
+            domain: r.domain,
+          }),
+        })
+        if (!response.ok) throw new Error('Execute failed')
+        await this.consumeSSE(response, 'a-' + Date.now())
+      } catch {
+        this.streamingContent = this.streamingContent || '执行失败'
+      }
+    },
+    async executeWithoutLens() {
+      this.routingResult = null
+    },
+    async consumeSSE(response, assistantMsgId) {
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+        let currentEvent = ''
+        for (const line of lines) {
+          if (line.startsWith('event:')) {
+            currentEvent = line.slice(6).trim()
+          } else if (line.startsWith('data:')) {
+            const data = line.slice(5)
+            if (currentEvent === 'token') {
+              this.streamingContent += data
+              this.$nextTick(() => this.scrollToBottom())
+            } else if (currentEvent === 'tool_start') {
+              try {
+                const info = JSON.parse(data)
+                this.streamingTools.push({ name: info.tool || '', label: '正在执行 ' + (info.tool || '') })
+              } catch {
+                this.streamingTools.push({ name: data, label: '正在查询...' })
+              }
+            } else if (currentEvent === 'error') {
+              if (!this.streamingContent) this.streamingContent = '请求出错：' + data
+            }
+          }
+        }
+      }
+      this.messages.push({
+        id: assistantMsgId, role: 'assistant', content: this.streamingContent,
+        confirms: [], tools: this.streamingTools,
+      })
       this.isStreaming = false
       this.streamingContent = ''
       this.streamingTools = []

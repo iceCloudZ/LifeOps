@@ -88,6 +88,7 @@ export default {
         if (this.currentConfig) {
           this.config.endpoint = this.currentConfig.endpoint || ''
           this.config.model = this.currentConfig.model || ''
+          this.config.api_key = this.currentConfig.api_key || ''
           this.config.max_tokens = this.currentConfig.max_tokens || 4096
           this.config.temperature = this.currentConfig.temperature || 0.7
         }

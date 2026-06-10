@@ -79,6 +79,15 @@ func (s *Server) handleConversationRoutes(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	if strings.HasSuffix(sub, "/route") {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		s.routeMessage(w, r, strings.TrimSuffix(sub, "/route"))
+		return
+	}
+
 	// Single conversation: DELETE
 	if r.Method == http.MethodDelete {
 		if err := s.store.DeleteConversation(sub); err != nil {
@@ -90,6 +99,56 @@ func (s *Server) handleConversationRoutes(w http.ResponseWriter, r *http.Request
 	}
 
 	w.WriteHeader(http.StatusMethodNotAllowed)
+}
+
+func (s *Server) routeMessage(w http.ResponseWriter, r *http.Request, conversationID string) {
+	var req struct {
+		Content         string `json:"content"`
+		CurrentMemberID string `json:"currentMemberId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid_request", "invalid json")
+		return
+	}
+
+	if s.butler == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "not_configured", "AI管家未配置")
+		return
+	}
+
+	domains, err := s.butler.AnalyzeAndRoute(req.Content)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "routing_failed", err.Error())
+		return
+	}
+
+	var lens *LensInfo
+	if len(domains) == 1 {
+		agent := s.butler.agents[domains[0]]
+		if s.butler.router != nil {
+			result, _ := s.butler.router.Route(req.Content, domains[0])
+			if result != nil {
+				lensName := result.PrimaryLensID
+				if l := s.butler.router.registry.GetLens(result.PrimaryLensID); l != nil {
+					lensName = l.Name
+				}
+				lens = &LensInfo{
+					ID:     result.PrimaryLensID,
+					Name:   lensName,
+					Reason: result.Reason,
+				}
+			}
+		}
+		_ = agent
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"domain":         domains,
+		"lens":           lens,
+		"reason":         "",
+		"needsWebSearch": false,
+	})
 }
 
 func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request, conversationID string) {
